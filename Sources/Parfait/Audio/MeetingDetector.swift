@@ -19,6 +19,7 @@ final class MeetingDetector: @unchecked Sendable {
     private var processListeners: [AudioObjectID: AudioObjectPropertyListenerBlock] = [:]
     private var lastState: [AudioObjectID: (pid: pid_t, running: Bool)] = [:]
     private var systemListener: AudioObjectPropertyListenerBlock?
+    private var pollTimer: DispatchSourceTimer?
     private let ownPID = getpid()
     private let log = Logger(subsystem: "io.github.conrad-vanl.Parfait", category: "detector")
 
@@ -42,11 +43,21 @@ final class MeetingDetector: @unchecked Sendable {
             AudioObjectAddPropertyListenerBlock(
                 AudioObjectID(kAudioObjectSystemObject), &listAddr, self.queue, block)
             self.syncProcessList()
+            // Core Audio's change notifications don't fire reliably on macOS 26 (a mic that
+            // goes live after we start is missed), so poll the full list on a timer — that,
+            // not the listeners, is what actually makes detection work once we're running.
+            let timer = DispatchSource.makeTimerSource(queue: self.queue)
+            timer.schedule(deadline: .now() + 2, repeating: 2)
+            timer.setEventHandler { [weak self] in self?.syncProcessList() }
+            timer.resume()
+            self.pollTimer = timer
         }
     }
 
     func stop() {
         queue.async {
+            self.pollTimer?.cancel()
+            self.pollTimer = nil
             var listAddr = Self.address(kAudioHardwarePropertyProcessObjectList)
             if let block = self.systemListener {
                 AudioObjectRemovePropertyListenerBlock(
@@ -128,7 +139,14 @@ final class MeetingDetector: @unchecked Sendable {
             if AudioObjectAddPropertyListenerBlock(added, &runAddr, queue, block) == noErr {
                 processListeners[added] = block
             }
-            evaluate(added)
+        }
+
+        // Re-check EVERY current process, not just newly-added ones: an app that flips
+        // IsRunningInput in place (Zoom joining a call) never hits the add/remove path, and
+        // its per-process listener doesn't fire on macOS 26. evaluate() only emits on a real
+        // transition, so re-scanning every object each poll is cheap and idempotent.
+        for object in current {
+            evaluate(object)
         }
     }
 
