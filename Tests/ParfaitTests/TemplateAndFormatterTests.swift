@@ -68,6 +68,18 @@ final class TemplateTests: XCTestCase {
         XCTAssertNil(store.template(named: "Old"))
         XCTAssertEqual(store.template(named: "New")?.body, "body v2")
     }
+
+    func testTemplateCaseOnlyRename() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parfait-tpl-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let store = TemplateStore(root: tmp)
+        try store.save(SummaryTemplate(name: "notes", body: "b"))
+        try store.rename(from: "notes", to: "Notes", body: "b")
+        let names = store.list().map(\.name)
+        XCTAssertTrue(names.contains("Notes"))
+        XCTAssertFalse(names.contains("notes")) // the lowercase entry is gone, not duplicated
+    }
 }
 
 final class FormatterTests: XCTestCase {

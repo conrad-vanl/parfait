@@ -69,17 +69,23 @@ final class TemplateStore: @unchecked Sendable {
             try save(SummaryTemplate(name: newName, body: body))
             return
         }
-        if list().contains(where: { $0.name.lowercased() == newName.lowercased() })
-            && newName.lowercased() != oldName.lowercased() {
-            throw TemplateError.nameTaken(newName)
-        }
-        try save(SummaryTemplate(name: newName, body: body))
         let oldURL = dir.appendingPathComponent(oldName + ".md")
         let newURL = dir.appendingPathComponent(newName + ".md")
-        if oldURL.standardizedFileURL != newURL.standardizedFileURL,
-           oldName.lowercased() != newName.lowercased() {
-            try? FileManager.default.removeItem(at: oldURL)
+
+        // Case-only rename ("notes" → "Notes"): on case-insensitive APFS a plain
+        // write onto the case-variant keeps the old directory-entry case, so the
+        // rename appears to do nothing. moveItem performs the actual case change.
+        if oldName.lowercased() == newName.lowercased() {
+            try body.data(using: .utf8)!.write(to: oldURL, options: .atomic)
+            try FileManager.default.moveItem(at: oldURL, to: newURL)
+            return
         }
+        if list().contains(where: { $0.name.lowercased() == newName.lowercased() }) {
+            throw TemplateError.nameTaken(newName)
+        }
+        // Write-before-delete so a crash can't lose the body.
+        try save(SummaryTemplate(name: newName, body: body))
+        try? FileManager.default.removeItem(at: oldURL)
     }
 
     func delete(named name: String) throws {

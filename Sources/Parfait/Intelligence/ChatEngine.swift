@@ -79,16 +79,23 @@ final class MeetingChat: ObservableObject {
             // transcript), so it rides on resumed turns too or Claude reverts
             // to its coding-assistant persona.
             let persona = "You are Parfait's meeting assistant. Answer based only on the provided meeting record. Be concise and cite speakers/timestamps when useful."
-            let result: ClaudeCLI.RunResult
-            if let sessionID = claudeSessionID {
-                result = try await ClaudeCLI.run(
-                    prompt: question, systemPrompt: persona, resume: sessionID)
-            } else {
-                result = try await ClaudeCLI.run(
+            func ask(resume: String?) async throws -> ClaudeCLI.RunResult {
+                if let resume {
+                    return try await ClaudeCLI.run(prompt: question, systemPrompt: persona, resume: resume)
+                }
+                return try await ClaudeCLI.run(
                     prompt: "Answer questions about this meeting.\n\nQuestion: \(question)",
                     stdin: context,
                     systemPrompt: persona
                 )
+            }
+            let result: ClaudeCLI.RunResult
+            do {
+                result = try await ask(resume: claudeSessionID)
+            } catch let error as ClaudeCLIError where error.isSessionNotFound {
+                // The persisted session was pruned — start a fresh one.
+                claudeSessionID = nil
+                result = try await ask(resume: nil)
             }
             claudeSessionID = result.sessionID
             messages.append(ChatMessage(role: .assistant, text: result.text, provider: "claude"))
@@ -137,19 +144,30 @@ final class LibraryChat: ObservableObject {
             // MCP config, tool allowances, AND the system prompt are all
             // per-invocation, so they ride on every turn; only the session
             // transcript persists via --resume.
-            let result = try await ClaudeCLI.run(
-                prompt: question,
-                systemPrompt: """
-                You are Parfait's meeting librarian. You answer questions about the user's \
-                recorded meetings using the parfait MCP tools (search_meetings, list_meetings, \
-                get_meeting, get_transcript). Search before answering; name the meeting and date \
-                you found things in. If nothing matches, say so plainly.
-                """,
-                resume: sessionID,
-                allowedTools: Self.allowedTools,
-                mcpConfigJSON: Self.mcpConfigJSON,
-                maxTurns: 12
-            )
+            func ask(resume: String?) async throws -> ClaudeCLI.RunResult {
+                try await ClaudeCLI.run(
+                    prompt: question,
+                    systemPrompt: """
+                    You are Parfait's meeting librarian. You answer questions about the user's \
+                    recorded meetings using the parfait MCP tools (search_meetings, list_meetings, \
+                    get_meeting, get_transcript). Search before answering; name the meeting and date \
+                    you found things in. If nothing matches, say so plainly.
+                    """,
+                    resume: resume,
+                    allowedTools: Self.allowedTools,
+                    mcpConfigJSON: Self.mcpConfigJSON,
+                    maxTurns: 12
+                )
+            }
+            let result: ClaudeCLI.RunResult
+            do {
+                result = try await ask(resume: sessionID)
+            } catch let error as ClaudeCLIError where error.isSessionNotFound {
+                // This chat outlives the window now, so a pruned session must
+                // self-heal instead of failing for the rest of the app's life.
+                sessionID = nil
+                result = try await ask(resume: nil)
+            }
             sessionID = result.sessionID
             messages.append(ChatMessage(role: .assistant, text: result.text, provider: "claude"))
         } catch {

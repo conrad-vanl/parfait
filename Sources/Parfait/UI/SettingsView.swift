@@ -289,6 +289,7 @@ private struct TemplateSettings: View {
     }
 
     private func loadDraft() {
+        saveError = nil // don't carry a rename error onto another template
         guard let selected, let t = templates.first(where: { $0.name == selected }) else {
             draftName = ""; draftBody = ""
             return

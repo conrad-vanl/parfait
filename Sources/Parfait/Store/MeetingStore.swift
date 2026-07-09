@@ -24,10 +24,14 @@ final class MeetingStore: ObservableObject {
     func upsert(_ meeting: Meeting) -> Meeting {
         do {
             try archive.save(meeting)
-        } catch {
-            // Most likely the meeting was deleted out from under a long-running
-            // task — don't resurrect it in memory either.
+        } catch MeetingArchive.ArchiveError.meetingDeleted {
+            // The meeting was deleted out from under a long-running task —
+            // don't resurrect it in memory either.
             meetings.removeAll { $0.id == meeting.id }
+            return meeting
+        } catch {
+            // A transient write failure (disk full, permissions): keep the
+            // in-memory entry so the meeting doesn't vanish from the UI.
             return meeting
         }
         if let i = meetings.firstIndex(where: { $0.id == meeting.id }) {

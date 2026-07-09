@@ -234,22 +234,31 @@ struct MeetingDetailView: View {
         let staging = ClaudeCLI.workDir.appendingPathComponent("publish-\(UUID().uuidString).html")
         try html.data(using: .utf8)?.write(to: staging)
         defer { try? FileManager.default.removeItem(at: staging) }
+        // The Artifact tool is a ToolSearch-deferred tool, not selectable by name
+        // in --tools, so load the default set (which includes ToolSearch) and ban
+        // the execution-capable tools — the staged HTML is untrusted content.
         let result = try await ClaudeCLI.run(
             prompt: """
             Read the HTML document at \(staging.path) and publish it as a Claude \
             Artifact titled "\(title)". Reply with ONLY the artifact URL.
             """,
-            builtinTools: ["Artifact", "Read"],
+            builtinTools: ["default"],
+            disallowedTools: ClaudeCLI.executionTools,
             allowedTools: ["Artifact", "Read(//\(staging.path))"],
             maxTurns: 6
         )
-        let candidates = result.text.split(whereSeparator: \.isWhitespace)
+        // Only accept a real Claude artifact URL — never persist a hallucinated
+        // link (which would otherwise be saved and copied as if it worked).
+        let url = result.text.split(whereSeparator: \.isWhitespace)
             .compactMap { URL(string: String($0)) }
-            .filter { $0.scheme?.hasPrefix("http") == true }
-        guard let url = candidates.last else {
-            throw ClaudeCLIError.badOutput
-        }
+            .last { Self.isArtifactURL($0) }
+        guard let url else { throw ClaudeCLIError.badOutput }
         return url
+    }
+
+    private static func isArtifactURL(_ url: URL) -> Bool {
+        guard url.scheme == "https", let host = url.host()?.lowercased() else { return false }
+        return host == "claude.ai" || host == "claude.site" || host.hasSuffix(".claude.site")
     }
 
     private func exportHTML() {

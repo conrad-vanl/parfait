@@ -337,6 +337,7 @@ final class AppState: NSObject, ObservableObject {
             var m = meeting
             if m.duration == 0 {
                 m.duration = audioDuration(archive: store.archive, id: m.id)
+                store.upsert(m) // persist before process() re-fetches, or it's lost
             }
             Task { await process(m) }
         }
