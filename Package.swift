@@ -4,9 +4,13 @@ import PackageDescription
 let package = Package(
     name: "Parfait",
     platforms: [.macOS(.v26)],
+    dependencies: [
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.5"),
+    ],
     targets: [
         .executableTarget(
             name: "Parfait",
+            dependencies: [.product(name: "FluidAudio", package: "FluidAudio")],
             path: "Sources/Parfait",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

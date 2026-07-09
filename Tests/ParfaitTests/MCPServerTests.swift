@@ -37,16 +37,34 @@ final class MCPServerTests: XCTestCase {
         return try JSONSerialization.jsonObject(with: Data(response.utf8)) as! [String: Any]
     }
 
-    func testInitializeHandshake() throws {
+    func testInitializeEchoesSupportedVersion() throws {
         let resp = try roundTrip([
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": "2025-06-18", "capabilities": [:]],
         ])
         let result = resp["result"] as! [String: Any]
-        XCTAssertEqual(result["protocolVersion"] as? String, MCPServer.protocolVersion)
+        XCTAssertEqual(result["protocolVersion"] as? String, "2025-06-18")
         let serverInfo = result["serverInfo"] as! [String: Any]
         XCTAssertEqual(serverInfo["name"] as? String, "parfait")
         XCTAssertNotNil((result["capabilities"] as! [String: Any])["tools"])
+    }
+
+    func testInitializeOffersLatestForUnknownVersion() throws {
+        let resp = try roundTrip([
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": ["protocolVersion": "1999-01-01", "capabilities": [:]],
+        ])
+        let result = resp["result"] as! [String: Any]
+        XCTAssertEqual(result["protocolVersion"] as? String, MCPServer.supportedProtocolVersions[0])
+    }
+
+    func testUnknownToolIsProtocolError() throws {
+        let resp = try roundTrip([
+            "jsonrpc": "2.0", "id": 10, "method": "tools/call",
+            "params": ["name": "explode", "arguments": [:]],
+        ])
+        let error = resp["error"] as! [String: Any]
+        XCTAssertEqual(error["code"] as? Int, -32602)
     }
 
     func testInitializedNotificationGetsNoResponse() {

@@ -5,7 +5,9 @@ import Foundation
 ///
 ///     claude mcp add parfait -- /Applications/Parfait.app/Contents/MacOS/Parfait --mcp
 final class MCPServer {
-    static let protocolVersion = "2025-06-18"
+    /// Newest first. We echo the client's version when we support it (spec rule);
+    /// otherwise we offer our latest and let the client decide.
+    static let supportedProtocolVersions = ["2025-11-25", "2025-06-18", "2025-03-26"]
 
     private let archive: MeetingArchive
 
@@ -41,10 +43,13 @@ final class MCPServer {
 
         switch method {
         case "initialize":
+            let requested = params["protocolVersion"] as? String ?? ""
+            let version = Self.supportedProtocolVersions.contains(requested)
+                ? requested : Self.supportedProtocolVersions[0]
             return encode(resultID: id!, result: [
-                "protocolVersion": Self.protocolVersion,
+                "protocolVersion": version,
                 "capabilities": ["tools": [:] as [String: Any]],
-                "serverInfo": ["name": "parfait", "version": Bootstrap.version],
+                "serverInfo": ["name": "parfait", "title": "Parfait", "version": Bootstrap.version],
             ])
         case "ping":
             return encode(resultID: id!, result: [:])
@@ -53,6 +58,11 @@ final class MCPServer {
         case "tools/call":
             let name = params["name"] as? String ?? ""
             let args = params["arguments"] as? [String: Any] ?? [:]
+            guard Self.toolDefinitions.contains(where: { $0["name"] as? String == name }) else {
+                // Unknown tool is a protocol error; execution failures below are soft
+                // isError results so the model can self-correct.
+                return encode(errorID: id!, code: -32602, message: "Unknown tool: \(name)")
+            }
             do {
                 let text = try call(tool: name, arguments: args)
                 return encode(resultID: id!, result: [
