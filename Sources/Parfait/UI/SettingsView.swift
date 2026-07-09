@@ -26,6 +26,7 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.identifySpeakers) private var identifySpeakers = true
     @AppStorage(SettingsKey.useCalendar) private var useCalendar = true
     @AppStorage(SettingsKey.defaultTemplate) private var defaultTemplate = "Meeting Notes"
+    @AppStorage(SettingsKey.systemAudioConfirmed) private var systemAudioConfirmed = false
 
     @State private var micStatus = MicRecorder.permissionGranted
     @State private var calendarStatus = CalendarMatcher.isAuthorized
@@ -98,10 +99,12 @@ private struct GeneralSettings: View {
                     Task { micStatus = await MicRecorder.requestPermission() }
                 }
                 HStack(alignment: .firstTextBaseline) {
-                    StatusDot(ok: nil)
+                    StatusDot(ok: systemAudioConfirmed ? true : nil)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("System Audio Recording").font(.parfait(12, .medium))
-                        Text("Records the other participants. macOS asks the first time a recording starts; manage it under Privacy & Security → Screen & System Audio Recording.")
+                        Text(systemAudioConfirmed
+                             ? "Records the other participants. Confirmed capturing audio in a previous recording."
+                             : "Records the other participants. macOS asks the first time a recording starts; manage it under Privacy & Security → Screen & System Audio Recording.")
                             .font(.parfait(11))
                             .foregroundStyle(.secondary)
                     }

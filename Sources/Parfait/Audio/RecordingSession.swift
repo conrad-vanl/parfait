@@ -43,6 +43,7 @@ final class RecordingSession: ObservableObject {
         } catch {
             problems.append("microphone: \(error.localizedDescription)")
         }
+        tap.signalDetectedHandler = { AppSettings.markSystemAudioConfirmed() }
         do {
             try tap.start(writingTo: systemURL)
             systemStarted = true

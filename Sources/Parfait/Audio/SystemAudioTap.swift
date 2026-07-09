@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import CoreAudio
 
@@ -48,6 +49,13 @@ final class SystemAudioTap: @unchecked Sendable {
     /// We pad the file with leading silence to close that gap. (ioQueue only.)
     private var anchorHostTime: UInt64 = 0
     private var didAnchor = false
+
+    /// Fires once, off the ioQueue, the first time the tap delivers non-silent audio — the
+    /// only reliable evidence macOS granted System Audio Recording (there is no TCC preflight,
+    /// and neither tap creation nor AudioDeviceStart fails on denial; a denied grant runs this
+    /// same IO path with zeroed buffers). Assign before start(). (ioQueue only after that.)
+    var signalDetectedHandler: (@Sendable () -> Void)?
+    private var didSignalSuccess = false
     private static let ticksPerSecond: Double = {
         var info = mach_timebase_info_data_t()
         mach_timebase_info(&info)
@@ -244,6 +252,13 @@ final class SystemAudioTap: @unchecked Sendable {
               input.frameLength > 0
         else { return }
 
+        // Proof of the TCC grant: real audio (even a quiet room) isn't exact digital zero,
+        // whereas a denied grant hands back all-zero buffers on this same path.
+        if !didSignalSuccess, Self.containsSignal(input) {
+            didSignalSuccess = true
+            signalDetectedHandler?()
+        }
+
         // On the first real buffer, pad the file so its t=0 is recording start,
         // not first-sound. Uses the buffer's host time vs the session anchor.
         if !didAnchor {
@@ -282,6 +297,15 @@ final class SystemAudioTap: @unchecked Sendable {
         } catch {
             // Drop the buffer; a failing disk resurfaces when the file is finalized or read.
         }
+    }
+
+    /// Peak magnitude above a tiny epsilon (not an RMS floor) — we only need yes/no, and a
+    /// denied grant's buffers are exactly zero, not merely quiet.
+    private static func containsSignal(_ buffer: AVAudioPCMBuffer) -> Bool {
+        guard let samples = buffer.floatChannelData?[0] else { return false }
+        var peak: Float = 0
+        vDSP_maxmgv(samples, 1, &peak, vDSP_Length(buffer.frameLength))
+        return peak > 0.0001
     }
 
     /// Writes `seconds` of silence to the file in the file's processing format,

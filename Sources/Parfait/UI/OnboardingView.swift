@@ -3,7 +3,9 @@ import SwiftUI
 
 struct OnboardingView: View {
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.colorScheme) private var scheme
     @AppStorage(SettingsKey.didCompleteOnboarding) private var didCompleteOnboarding = false
+    @AppStorage(SettingsKey.systemAudioConfirmed) private var systemAudioConfirmed = false
 
     @State private var micStatus = MicRecorder.permissionGranted
     @State private var calendarStatus = CalendarMatcher.isAuthorized
@@ -44,7 +46,7 @@ struct OnboardingView: View {
             .padding(16)
         }
         .frame(width: 520)
-        .background(Theme.cream)
+        .background(Theme.surface(scheme))
         .onAppear {
             micStatus = MicRecorder.permissionGranted
             calendarStatus = CalendarMatcher.isAuthorized
@@ -77,13 +79,16 @@ struct OnboardingView: View {
     }
 
     private var systemAudioRow: some View {
-        // No public preflight/request API exists for kTCCServiceAudioCapture — macOS
-        // prompts the first time a recording actually starts. Mirror SettingsView's
-        // informational (neutral-dot) row.
+        // No public preflight/request API exists for kTCCServiceAudioCapture (verified against
+        // the macOS 26 SDK — no CGPreflightScreenCaptureAccess analog, and tap start/IO succeed
+        // silently whether or not it's granted). So we go green only once a real recording has
+        // actually captured non-silent system audio (systemAudioConfirmed, set from SystemAudioTap).
         OnboardingStepRow(
             icon: "waveform", title: "System Audio Recording", required: true,
-            detail: "Records the other participants. macOS will ask the first time you record; you can also enable it under Privacy & Security → Screen & System Audio Recording.",
-            ok: nil
+            detail: systemAudioConfirmed
+                ? "Confirmed — captured system audio in a previous recording."
+                : "Records the other participants. macOS will ask the first time you record; you can also enable it under Privacy & Security → Screen & System Audio Recording.",
+            ok: systemAudioConfirmed ? true : nil
         ) {
             Button("Open Settings") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security")!)

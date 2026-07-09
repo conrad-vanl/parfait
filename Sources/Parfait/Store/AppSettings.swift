@@ -11,6 +11,7 @@ enum SettingsKey {
     static let ignoredBundleIDs = "ignoredBundleIDs"        // apps that never count as meetings
     static let autoStopRecording = "autoStopRecording"      // stop ~8s after the meeting app releases the mic
     static let didCompleteOnboarding = "didCompleteOnboarding" // first-run walkthrough finished
+    static let systemAudioConfirmed = "systemAudioConfirmed"   // tap has captured real (non-silent) audio at least once
 }
 
 enum AppSettings {
@@ -26,6 +27,7 @@ enum AppSettings {
             SettingsKey.ignoredBundleIDs: defaultIgnoredBundleIDs,
             SettingsKey.autoStopRecording: true,
             SettingsKey.didCompleteOnboarding: false,
+            SettingsKey.systemAudioConfirmed: false,
         ])
     }
 
@@ -49,4 +51,6 @@ enum AppSettings {
     }
     static var autoStopRecording: Bool { defaults.bool(forKey: SettingsKey.autoStopRecording) }
     static var didCompleteOnboarding: Bool { defaults.bool(forKey: SettingsKey.didCompleteOnboarding) }
+    static var systemAudioConfirmed: Bool { defaults.bool(forKey: SettingsKey.systemAudioConfirmed) }
+    static func markSystemAudioConfirmed() { defaults.set(true, forKey: SettingsKey.systemAudioConfirmed) }
 }
