@@ -10,9 +10,11 @@ final class MCPServer {
     static let supportedProtocolVersions = ["2025-11-25", "2025-06-18", "2025-03-26"]
 
     private let archive: MeetingArchive
+    private let templates: TemplateStore
 
-    init(archive: MeetingArchive) {
+    init(archive: MeetingArchive, templates: TemplateStore) {
         self.archive = archive
+        self.templates = templates
     }
 
     func runBlocking() {
@@ -126,17 +128,86 @@ final class MCPServer {
                 "required": ["id"],
             ] as [String: Any],
         ],
+        [
+            "name": "list_templates",
+            "description": "List the user's summary templates by name, with each one's heading outline (## sections). Templates are the markdown skeletons Parfait fills in to summarize a meeting.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [:] as [String: Any],
+                "additionalProperties": false,
+            ] as [String: Any],
+        ],
+        [
+            "name": "get_template",
+            "description": "Get the full markdown body of one summary template by name.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "name": ["type": "string", "description": "Template name, e.g. \"Meeting Notes\""],
+                ],
+                "required": ["name"],
+            ] as [String: Any],
+        ],
+        [
+            "name": "create_template",
+            "description": "Create a new summary template. A template is a markdown skeleton: headings plus one line of guidance under each about what goes there -- not a filled-in example. Use placeholders {{title}}, {{date}}, {{attendees}}, {{duration}}, {{app}} anywhere in the body; they're substituted with meeting metadata before the transcript is handed to the model. Start with a level-1 heading (e.g. \"# {{title}}\") and use level-2 headings (##) for sections. Fails if a template with this name already exists (case-insensitive) -- use update_template to edit one instead.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "name": ["type": "string", "description": "New template name. Can't contain \"/\" or \":\"."],
+                    "content": ["type": "string", "description": "Markdown body, e.g. \"# {{title}}\\n\\n{{date}} - {{attendees}}\\n\\n## TL;DR\\nTwo or three sentences...\""],
+                ],
+                "required": ["name", "content"],
+            ] as [String: Any],
+        ],
+        [
+            "name": "update_template",
+            "description": "Replace the full body of an existing summary template. Same placeholder and heading-skeleton conventions as create_template. Fails if no template with this name exists -- use create_template for a new one.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "name": ["type": "string", "description": "Existing template name"],
+                    "content": ["type": "string", "description": "New markdown body, replacing the old one in full"],
+                ],
+                "required": ["name", "content"],
+            ] as [String: Any],
+        ],
+        [
+            "name": "delete_template",
+            "description": "Delete a summary template by name. This cannot be undone.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "name": ["type": "string", "description": "Template name to delete"],
+                ],
+                "required": ["name"],
+            ] as [String: Any],
+        ],
+        [
+            "name": "rename_template",
+            "description": "Rename a summary template, keeping its body unchanged. Case-only renames (e.g. \"notes\" -> \"Notes\") are supported.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "old_name": ["type": "string", "description": "Current template name"],
+                    "new_name": ["type": "string", "description": "New template name. Can't contain \"/\" or \":\"."],
+                ],
+                "required": ["old_name", "new_name"],
+            ] as [String: Any],
+        ],
     ]
 
     enum ToolError: LocalizedError {
         case unknownTool(String)
         case badArgument(String)
         case notFound(String)
+        case templateNotFound(String)
         var errorDescription: String? {
             switch self {
             case .unknownTool(let n): return "Unknown tool '\(n)'"
             case .badArgument(let m): return m
             case .notFound(let id): return "No meeting with id \(id)"
+            case .templateNotFound(let name): return "No template named \"\(name)\""
             }
         }
     }
@@ -178,6 +249,53 @@ final class MCPServer {
             return "# \(meeting.title)\n\n"
                 + TranscriptFormatter.plainText(segments, speakers: meeting.speakers)
 
+        case "list_templates":
+            let all = templates.list()
+            if all.isEmpty { return "No templates yet." }
+            return all.map(Self.describeTemplate).joined(separator: "\n")
+
+        case "get_template":
+            return try templateArg(arguments).body
+
+        case "create_template":
+            guard let name = arguments["name"] as? String, !name.isEmpty else {
+                throw ToolError.badArgument("'name' is required")
+            }
+            guard let content = arguments["content"] as? String else {
+                throw ToolError.badArgument("'content' is required")
+            }
+            try templates.create(name: name, body: content)
+            return "Created template \"\(name)\"."
+
+        case "update_template":
+            guard let name = arguments["name"] as? String, !name.isEmpty else {
+                throw ToolError.badArgument("'name' is required")
+            }
+            guard let content = arguments["content"] as? String else {
+                throw ToolError.badArgument("'content' is required")
+            }
+            guard templates.template(named: name) != nil else { throw ToolError.templateNotFound(name) }
+            try templates.save(SummaryTemplate(name: name, body: content))
+            return "Updated template \"\(name)\"."
+
+        case "delete_template":
+            let template = try templateArg(arguments)
+            try templates.delete(named: template.name)
+            return "Deleted template \"\(template.name)\"."
+
+        case "rename_template":
+            guard let oldName = arguments["old_name"] as? String, !oldName.isEmpty else {
+                throw ToolError.badArgument("'old_name' is required")
+            }
+            guard let newName = arguments["new_name"] as? String, !newName.isEmpty else {
+                throw ToolError.badArgument("'new_name' is required")
+            }
+            guard let existing = templates.template(named: oldName) else {
+                throw ToolError.templateNotFound(oldName)
+            }
+            try templates.rename(from: oldName, to: newName, body: existing.body)
+            return "Renamed template \"\(oldName)\" to \"\(newName)\"."
+
         default:
             throw ToolError.unknownTool(tool)
         }
@@ -189,6 +307,22 @@ final class MCPServer {
         }
         guard let meeting = archive.meeting(id: id) else { throw ToolError.notFound(idString) }
         return meeting
+    }
+
+    private func templateArg(_ arguments: [String: Any], key: String = "name") throws -> SummaryTemplate {
+        guard let name = arguments[key] as? String, !name.isEmpty else {
+            throw ToolError.badArgument("'\(key)' must be a template name")
+        }
+        guard let template = templates.template(named: name) else { throw ToolError.templateNotFound(name) }
+        return template
+    }
+
+    private static func describeTemplate(_ t: SummaryTemplate) -> String {
+        let headings = t.body.split(separator: "\n")
+            .map(String.init)
+            .filter { $0.hasPrefix("## ") }
+            .map { String($0.dropFirst(3)) }
+        return headings.isEmpty ? t.name : "\(t.name): \(headings.joined(separator: ", "))"
     }
 
     private static func describe(_ m: Meeting) -> String {

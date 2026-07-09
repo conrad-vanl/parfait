@@ -97,6 +97,27 @@ The MCP server (`Parfait --mcp`) is a thin stdio reader over the on-disk library
 `list_meetings`, `search_meetings`, `get_meeting`, `get_transcript`. Nothing leaves your Mac
 except what the model you're talking to reads through those tools.
 
+### Claude Desktop
+
+Claude Desktop reads MCP servers from a config file, not a CLI command. Open (or create)
+`~/Library/Application Support/Claude/claude_desktop_config.json` and merge this into the
+`mcpServers` object — **don't overwrite the file** if you already have other servers configured:
+
+```json
+{
+  "mcpServers": {
+    "parfait": {
+      "command": "/Applications/Parfait.app/Contents/MacOS/Parfait",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. Settings → "Connect Claude to your meetings" in the app
+has a "Copy JSON" button that fills in your actual install path, and a "Reveal in Finder" button
+that jumps straight to the config file.
+
 ## Templates
 
 Notes are shaped by markdown templates you can edit in **Settings → Templates** (or any editor —

@@ -1,6 +1,7 @@
 import AppKit
 import CoreAudio
 import Foundation
+import os
 
 struct MicEvent: Sendable {
     let pid: pid_t
@@ -19,6 +20,7 @@ final class MeetingDetector: @unchecked Sendable {
     private var lastState: [AudioObjectID: (pid: pid_t, running: Bool)] = [:]
     private var systemListener: AudioObjectPropertyListenerBlock?
     private let ownPID = getpid()
+    private let log = Logger(subsystem: "io.github.conrad-vanl.Parfait", category: "detector")
 
     private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(
@@ -30,6 +32,7 @@ final class MeetingDetector: @unchecked Sendable {
     func start(onEvent: @escaping @Sendable (MicEvent) -> Void) {
         queue.async {
             guard self.systemListener == nil else { return }
+            self.log.info("detector starting")
             self.onEvent = onEvent
             var listAddr = Self.address(kAudioHardwarePropertyProcessObjectList)
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
@@ -144,6 +147,7 @@ final class MeetingDetector: @unchecked Sendable {
     private func emit(object: AudioObjectID?, pid: pid_t, running: Bool) {
         let app = NSRunningApplication(processIdentifier: pid)
         let bundleID = object.flatMap(readBundleID) ?? app?.bundleIdentifier
+        log.debug("emit pid=\(pid) bundleID=\(bundleID ?? "nil", privacy: .public) running=\(running)")
         onEvent?(MicEvent(
             pid: pid,
             bundleID: bundleID,

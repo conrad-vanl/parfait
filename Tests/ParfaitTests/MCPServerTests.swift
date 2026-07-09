@@ -4,6 +4,7 @@ import XCTest
 final class MCPServerTests: XCTestCase {
     var tmp: URL!
     var archive: MeetingArchive!
+    var templates: TemplateStore!
     var server: MCPServer!
     var meeting: Meeting!
 
@@ -11,7 +12,8 @@ final class MCPServerTests: XCTestCase {
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("parfait-mcp-\(UUID().uuidString)")
         archive = MeetingArchive(root: tmp)
-        server = MCPServer(archive: archive)
+        templates = TemplateStore(root: tmp)
+        server = MCPServer(archive: archive, templates: templates)
 
         var m = Meeting(title: "Roadmap sync", createdAt: Date())
         m.speakers = [Speaker(id: "me", name: "Me", isMe: true), Speaker(id: "s1", name: "Priya")]
@@ -78,7 +80,11 @@ final class MCPServerTests: XCTestCase {
         let resp = try roundTrip(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let tools = (resp["result"] as! [String: Any])["tools"] as! [[String: Any]]
         let names = tools.map { $0["name"] as! String }.sorted()
-        XCTAssertEqual(names, ["get_meeting", "get_transcript", "list_meetings", "search_meetings"])
+        XCTAssertEqual(names, [
+            "create_template", "delete_template", "get_meeting", "get_template",
+            "get_transcript", "list_meetings", "list_templates", "rename_template",
+            "search_meetings", "update_template",
+        ])
         for tool in tools {
             XCTAssertNotNil(tool["description"])
             XCTAssertNotNil(tool["inputSchema"])
@@ -150,5 +156,94 @@ final class MCPServerTests: XCTestCase {
     func testPing() throws {
         let resp = try roundTrip(["jsonrpc": "2.0", "id": 9, "method": "ping"])
         XCTAssertNotNil(resp["result"])
+    }
+
+    func testListTemplatesReflectsSeededBuiltins() throws {
+        let resp = try roundTrip([
+            "jsonrpc": "2.0", "id": 20, "method": "tools/call",
+            "params": ["name": "list_templates", "arguments": [:]],
+        ])
+        let result = resp["result"] as! [String: Any]
+        XCTAssertEqual(result["isError"] as? Bool, false)
+        let text = (((result)["content"] as! [[String: Any]])[0]["text"] as! String)
+        XCTAssertTrue(text.contains("Meeting Notes"))
+        XCTAssertTrue(text.contains("1-on-1"))
+        XCTAssertTrue(text.contains("Interview"))
+    }
+
+    func testCreateTemplateHappyPath() throws {
+        let resp = try roundTrip([
+            "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+            "params": [
+                "name": "create_template",
+                "arguments": ["name": "Standup", "content": "# {{title}}\n\n## Blockers\nWhat's stuck."],
+            ],
+        ])
+        let result = resp["result"] as! [String: Any]
+        XCTAssertEqual(result["isError"] as? Bool, false)
+        XCTAssertNotNil(templates.template(named: "Standup"))
+    }
+
+    func testCreateTemplateCollisionIsError() throws {
+        let resp = try roundTrip([
+            "jsonrpc": "2.0", "id": 22, "method": "tools/call",
+            "params": [
+                "name": "create_template",
+                "arguments": ["name": "meeting notes", "content": "# {{title}}"],
+            ],
+        ])
+        let result = resp["result"] as! [String: Any]
+        XCTAssertEqual(result["isError"] as? Bool, true)
+    }
+
+    func testUpdateTemplateOnMissingNameIsError() throws {
+        let resp = try roundTrip([
+            "jsonrpc": "2.0", "id": 23, "method": "tools/call",
+            "params": [
+                "name": "update_template",
+                "arguments": ["name": "Does Not Exist", "content": "# {{title}}"],
+            ],
+        ])
+        let result = resp["result"] as! [String: Any]
+        XCTAssertEqual(result["isError"] as? Bool, true)
+    }
+
+    func testGetTemplateRoundTrip() throws {
+        let resp = try roundTrip([
+            "jsonrpc": "2.0", "id": 24, "method": "tools/call",
+            "params": ["name": "get_template", "arguments": ["name": "Interview"]],
+        ])
+        let result = resp["result"] as! [String: Any]
+        XCTAssertEqual(result["isError"] as? Bool, false)
+        let text = (((result)["content"] as! [[String: Any]])[0]["text"] as! String)
+        XCTAssertTrue(text.contains("## Candidate Snapshot"))
+    }
+
+    func testDeleteTemplateReflectedInList() throws {
+        let delete = try roundTrip([
+            "jsonrpc": "2.0", "id": 25, "method": "tools/call",
+            "params": ["name": "delete_template", "arguments": ["name": "1-on-1"]],
+        ])
+        XCTAssertEqual((delete["result"] as! [String: Any])["isError"] as? Bool, false)
+
+        let list = try roundTrip([
+            "jsonrpc": "2.0", "id": 26, "method": "tools/call",
+            "params": ["name": "list_templates", "arguments": [:]],
+        ])
+        let text = (((list["result"] as! [String: Any])["content"] as! [[String: Any]])[0]["text"] as! String)
+        XCTAssertFalse(text.contains("1-on-1"))
+    }
+
+    func testRenameTemplateCaseOnly() throws {
+        let resp = try roundTrip([
+            "jsonrpc": "2.0", "id": 27, "method": "tools/call",
+            "params": [
+                "name": "rename_template",
+                "arguments": ["old_name": "Interview", "new_name": "interview"],
+            ],
+        ])
+        let result = resp["result"] as! [String: Any]
+        XCTAssertEqual(result["isError"] as? Bool, false)
+        XCTAssertEqual(templates.template(named: "interview")?.name, "interview")
     }
 }

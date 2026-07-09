@@ -18,7 +18,7 @@ enum Bootstrap {
             return
         }
         if args.contains("--mcp") {
-            MCPServer(archive: MeetingArchive()).runBlocking()
+            MCPServer(archive: MeetingArchive(), templates: TemplateStore()).runBlocking()
             return
         }
         ParfaitApp.main()

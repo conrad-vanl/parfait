@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Combine
 import Foundation
+import os
 import SwiftUI
 import UserNotifications
 
@@ -22,15 +23,18 @@ final class AppState: NSObject, ObservableObject {
     @Published var lastError: String?
     /// Set by the menu bar to steer the main window's selection.
     @Published var openMeetingID: UUID?
+    /// Apps currently holding the mic open, live and independent of recording
+    /// state — feeds auto-stop (any recording, not just auto-started ones) and
+    /// the Settings "currently hearing" diagnostic row.
+    @Published private(set) var activeMicApps: [pid_t: String] = [:]
+    @Published private(set) var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
+    var activeMicAppNames: [String] { Array(Set(activeMicApps.values)).sorted() }
 
     private let detector = MeetingDetector()
     private var pendingDetection: MicEvent?
-    /// The app whose mic use started the current recording (auto or accepted
-    /// detection). Bundle id matters too: helpers restart with new pids.
-    private var triggerPID: pid_t?
-    private var triggerBundleID: String?
-    private var autoStarted = false
     private var pendingAutoStop: Task<Void, Never>?
+    private static let autoStopGrace: Duration = .seconds(8)
+    private let log = Logger(subsystem: "io.github.conrad-vanl.Parfait", category: "detection")
     /// Closes the reentrancy window between startRecording's guard and its
     /// `session =` assignment (mic-permission dialog, calendar lookup).
     private var isStartingRecording = false
@@ -81,29 +85,23 @@ final class AppState: NSObject, ObservableObject {
         detector.stop()
         detectedAppName = nil
         pendingDetection = nil
-    }
-
-    private func isTrigger(_ event: MicEvent) -> Bool {
-        if let triggerPID, event.pid == triggerPID { return true }
-        if let triggerBundleID, let bid = event.bundleID, bid == triggerBundleID { return true }
-        return false
+        // detector.stop() drops its listeners without emitting closing false events,
+        // so any still-running pid would linger here and permanently block auto-stop.
+        activeMicApps.removeAll()
+        pendingAutoStop?.cancel()
+        pendingAutoStop = nil
     }
 
     private func handle(_ event: MicEvent) {
         guard !MeetingDetector.isIgnored(bundleID: event.bundleID) else { return }
         let name = MeetingDetector.displayName(for: event)
+        log.debug("mic \(name, privacy: .public) pid=\(event.pid) running=\(event.isRunningInput)")
 
         if event.isRunningInput {
-            if isRecording {
-                // The trigger app re-grabbed the mic (reconnect, new helper pid):
-                // call is alive again, disarm any pending auto-stop.
-                if autoStarted, isTrigger(event) {
-                    triggerPID = event.pid
-                    pendingAutoStop?.cancel()
-                    pendingAutoStop = nil
-                }
-                return
-            }
+            activeMicApps[event.pid] = name
+            pendingAutoStop?.cancel(); pendingAutoStop = nil // any live meeting app cancels a pending stop
+
+            if isRecording { return }
             guard !isStartingRecording else { return }
             if AppSettings.autoRecord {
                 Task { await startRecording(sourceApp: name, trigger: event) }
@@ -113,21 +111,30 @@ final class AppState: NSObject, ObservableObject {
                 notifyMeetingDetected(app: name)
             }
         } else {
+            activeMicApps.removeValue(forKey: event.pid)
             if !isRecording, event.pid == pendingDetection?.pid {
                 detectedAppName = nil
                 pendingDetection = nil
             }
-            // Auto-started recordings end shortly after the meeting app lets go
-            // of the mic (debounced — apps drop and re-grab during reconnects).
-            if isRecording, autoStarted, isTrigger(event) {
-                pendingAutoStop?.cancel()
-                pendingAutoStop = Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(8))
-                    guard !Task.isCancelled else { return }
-                    await self?.stopRecording()
-                }
+            // All detected mic apps quiet — debounced (apps drop and re-grab
+            // during reconnects) — before treating the meeting as over. Applies
+            // to any recording, not just auto/accepted-start ones.
+            guard isRecording, AppSettings.autoStopRecording, activeMicApps.isEmpty else { return }
+            log.debug("all detected mic apps quiet — arming \(Self.autoStopGrace)s auto-stop")
+            pendingAutoStop = Task { [weak self] in
+                try? await Task.sleep(for: Self.autoStopGrace)
+                guard !Task.isCancelled else { return }
+                await self?.autoStop()
             }
         }
+    }
+
+    private func autoStop() async {
+        // Re-check everything: the recording may have ended, the mic reconnected, or
+        // the user disabled auto-stop during the grace window.
+        guard isRecording, AppSettings.autoStopRecording, activeMicApps.isEmpty else { return }
+        log.info("auto-stopping — meeting app released the mic")
+        await stopRecording()
     }
 
     // MARK: - Recording
@@ -189,15 +196,6 @@ final class AppState: NSObject, ObservableObject {
         store.upsert(meeting)
         recordingMeeting = meeting
         session = newSession
-        if let trigger {
-            triggerPID = trigger.pid
-            triggerBundleID = trigger.bundleID
-            autoStarted = true
-        } else {
-            triggerPID = nil
-            triggerBundleID = nil
-            autoStarted = false
-        }
     }
 
     func stopRecording() async {
@@ -223,9 +221,6 @@ final class AppState: NSObject, ObservableObject {
         pendingAutoStop = nil
         session = nil
         recordingMeeting = nil
-        autoStarted = false
-        triggerPID = nil
-        triggerBundleID = nil
     }
 
     func dismissDetection() {
@@ -362,7 +357,20 @@ final class AppState: NSObject, ObservableObject {
         let category = UNNotificationCategory(
             identifier: "MEETING_DETECTED", actions: [record], intentIdentifiers: [])
         center.setNotificationCategories([category])
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        // Plain [.alert, .sound] so the "Record it?" alert can appear as a live, tappable
+        // banner. (.provisional would skip the prompt but only grant quiet, Notification-
+        // Center-only delivery — the Record action would never surface during a call.)
+        // A denied state is surfaced by the Notifications row in Settings.
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            self.log.info("notification auth granted=\(granted) error=\(error?.localizedDescription ?? "none", privacy: .public)")
+            Task { await self.refreshNotificationStatus() }
+        }
+        Task { await refreshNotificationStatus() }
+    }
+
+    func refreshNotificationStatus() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationAuthStatus = settings.authorizationStatus
     }
 
     private func notifyMeetingDetected(app: String) {
@@ -374,7 +382,9 @@ final class AppState: NSObject, ObservableObject {
         content.sound = nil
         let request = UNNotificationRequest(
             identifier: "detected-\(Date().timeIntervalSince1970)", content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error { self.log.error("notification add failed: \(error.localizedDescription, privacy: .public)") }
+        }
     }
 
     private func notifyReady(_ meeting: Meeting) {

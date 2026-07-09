@@ -89,7 +89,7 @@ struct MeetingDetailView: View {
             }
 
             if !meeting.attendees.isEmpty {
-                HStack(spacing: 6) {
+                FlowLayout(spacing: 6) {
                     ForEach(meeting.attendees, id: \.self) { Chip(text: $0) }
                 }
             }

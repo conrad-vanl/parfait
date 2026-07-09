@@ -31,7 +31,9 @@ final class TemplateStore: @unchecked Sendable {
     }
 
     func template(named name: String) -> SummaryTemplate? {
-        list().first { $0.name == name }
+        // Case-insensitive to match create()/rename() collision semantics (and APFS) —
+        // names are unique case-insensitively, so this can't be ambiguous.
+        list().first { $0.name.lowercased() == name.lowercased() }
     }
 
     enum TemplateError: LocalizedError {
@@ -90,6 +92,17 @@ final class TemplateStore: @unchecked Sendable {
 
     func delete(named name: String) throws {
         try FileManager.default.removeItem(at: dir.appendingPathComponent(name + ".md"))
+    }
+
+    /// Create-only variant of save(): fails if a template with this name already
+    /// exists (case-insensitively), so MCP callers can't silently clobber one.
+    func create(name: String, body: String) throws {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard Self.isValid(name: trimmed) else { throw TemplateError.invalidName }
+        if list().contains(where: { $0.name.lowercased() == trimmed.lowercased() }) {
+            throw TemplateError.nameTaken(trimmed)
+        }
+        try save(SummaryTemplate(name: trimmed, body: body))
     }
 
     private func seedIfEmpty() {

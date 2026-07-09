@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import SwiftUI
+import UserNotifications
 
 struct SettingsView: View {
     var body: some View {
@@ -18,8 +19,10 @@ struct SettingsView: View {
 
 private struct GeneralSettings: View {
     @EnvironmentObject private var app: AppState
+    @Environment(\.openWindow) private var openWindow
     @AppStorage(SettingsKey.detectMeetings) private var detectMeetings = true
     @AppStorage(SettingsKey.autoRecord) private var autoRecord = false
+    @AppStorage(SettingsKey.autoStopRecording) private var autoStopRecording = true
     @AppStorage(SettingsKey.identifySpeakers) private var identifySpeakers = true
     @AppStorage(SettingsKey.useCalendar) private var useCalendar = true
     @AppStorage(SettingsKey.defaultTemplate) private var defaultTemplate = "Meeting Notes"
@@ -29,6 +32,13 @@ private struct GeneralSettings: View {
 
     var body: some View {
         Form {
+            Section("Setup") {
+                Button("Run setup walkthrough again") { openWindow(id: "onboarding") }
+                    .buttonStyle(.plain)
+                    .font(.parfait(12))
+                    .foregroundStyle(Theme.blueberry)
+            }
+
             Section("Meetings") {
                 Toggle("Detect meetings automatically", isOn: $detectMeetings)
                     .onChange(of: detectMeetings) {
@@ -39,6 +49,21 @@ private struct GeneralSettings: View {
                 Text("Parfait notices when another app starts using your microphone — Zoom, Meet, Teams, anything — and offers to record. Nothing is captured until recording starts.")
                     .font(.parfait(11))
                     .foregroundStyle(.secondary)
+                Toggle("Stop recording automatically when the meeting ends", isOn: $autoStopRecording)
+                    .disabled(!detectMeetings)
+                Text("Waits ~8s after the meeting app releases the microphone, in case it reconnects.")
+                    .font(.parfait(11))
+                    .foregroundStyle(.secondary)
+                if detectMeetings {
+                    HStack(alignment: .top) {
+                        StatusDot(ok: app.activeMicAppNames.isEmpty ? nil : true)
+                        Text(app.activeMicAppNames.isEmpty
+                             ? "No other app is using the microphone right now."
+                             : "Currently hearing: \(app.activeMicAppNames.joined(separator: ", "))")
+                            .font(.parfait(11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Section("Understanding") {
@@ -87,6 +112,23 @@ private struct GeneralSettings: View {
                     }
                     .controlSize(.small)
                 }
+                HStack(alignment: .firstTextBaseline) {
+                    StatusDot(ok: app.notificationAuthStatus == .authorized || app.notificationAuthStatus == .provisional
+                               ? true : (app.notificationAuthStatus == .denied ? false : nil))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Notifications").font(.parfait(12, .medium))
+                        Text("Needed for the \"Record it?\" alert when a meeting is detected. Without it, check the menu bar.")
+                            .font(.parfait(11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Open Settings") {
+                        NSWorkspace.shared.open(URL(
+                            string: "x-apple.systempreferences:com.apple.preference.notifications")!)
+                    }
+                    .controlSize(.small)
+                }
+                .task { await app.refreshNotificationStatus() }
             }
         }
         .formStyle(.grouped)
@@ -173,6 +215,28 @@ private struct IntelligenceSettings: View {
                     Text("Everything stays local — the MCP server just reads Parfait's on-disk library.")
                         .font(.parfait(11))
                         .foregroundStyle(.secondary)
+
+                    Divider().padding(.vertical, 2)
+                    Text("Or add it to Claude Desktop:")
+                        .font(.parfait(12))
+                    HStack {
+                        Text("~/Library/Application Support/Claude/claude_desktop_config.json")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button("Copy JSON") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(mcpDesktopConfigSnippet, forType: .string)
+                        }
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([claudeDesktopConfigURL])
+                        }
+                    }
+                    Text("Merge the \"parfait\" entry into the existing \"mcpServers\" object — don't overwrite the file if you already have other MCP servers configured.")
+                        .font(.parfait(11))
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -190,6 +254,25 @@ private struct IntelligenceSettings: View {
     private var mcpCommand: String {
         let binary = Bundle.main.executablePath ?? "/Applications/Parfait.app/Contents/MacOS/Parfait"
         return "claude mcp add parfait -s user -- \"\(binary)\" --mcp"
+    }
+
+    private var mcpDesktopConfigSnippet: String {
+        let binary = Bundle.main.executablePath ?? "/Applications/Parfait.app/Contents/MacOS/Parfait"
+        return """
+        {
+          "mcpServers": {
+            "parfait": {
+              "command": "\(binary)",
+              "args": ["--mcp"]
+            }
+          }
+        }
+        """
+    }
+
+    private var claudeDesktopConfigURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json")
     }
 
     private func statusRow(ok: Bool, title: String, detail: String) -> some View {
@@ -311,7 +394,7 @@ private struct TemplateSettings: View {
     }
 }
 
-private struct StatusDot: View {
+struct StatusDot: View {
     /// true = green, false = orange, nil = neutral (informational).
     let ok: Bool?
 

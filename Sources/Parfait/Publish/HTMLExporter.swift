@@ -75,6 +75,8 @@ enum HTMLExporter {
         .chip{
           background:var(--chip); color:var(--accent); font-size:.82rem; font-weight:600;
           padding:4px 13px; border-radius:999px; border:1px solid var(--border);
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+          max-width:220px; min-width:0; display:inline-block; vertical-align:top;
         }
         .section-title{
           margin:36px 0 12px; color:var(--honey); font-size:.78rem; font-weight:700;

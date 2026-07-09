@@ -188,12 +188,18 @@ final class MicRecorder: @unchecked Sendable {
         }
     }
 
+    private static let meterFloorDB: Float = -55   // near-silence -> level 0
+    private static let meterCeilingDB: Float = -12  // loud/near-clip speech -> level 1
+
     private func meterLocked(_ buffer: AVAudioPCMBuffer) -> Float? {
         guard buffer.frameLength > 0, let samples = buffer.floatChannelData?[0] else { return nil }
         var rms: Float = 0
         vDSP_rmsqv(samples, 1, &rms, vDSP_Length(buffer.frameLength))
-        // sqrt lifts quiet speech into a visible meter range.
-        smoothedLevel += (min(1, rms.squareRoot()) - smoothedLevel) * 0.3
+        // dBFS mapped to a floor/ceiling window (rather than raw sqrt(rms)) so normal speech
+        // (~-35..-20 dBFS) actually fills the meter instead of only the loudest moments.
+        let dB = 20 * log10(max(rms, 1e-6))
+        let normalized = (dB - Self.meterFloorDB) / (Self.meterCeilingDB - Self.meterFloorDB)
+        smoothedLevel += (min(1, max(0, normalized)) - smoothedLevel) * 0.3
         let now = CFAbsoluteTimeGetCurrent()
         guard now - lastLevelEmit >= 0.1 else { return nil }
         lastLevelEmit = now

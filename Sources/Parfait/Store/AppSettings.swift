@@ -9,6 +9,8 @@ enum SettingsKey {
     static let useCalendar = "useCalendar"                  // match calendar events for titles/attendees
     static let defaultTemplate = "defaultTemplate"
     static let ignoredBundleIDs = "ignoredBundleIDs"        // apps that never count as meetings
+    static let autoStopRecording = "autoStopRecording"      // stop ~8s after the meeting app releases the mic
+    static let didCompleteOnboarding = "didCompleteOnboarding" // first-run walkthrough finished
 }
 
 enum AppSettings {
@@ -22,6 +24,8 @@ enum AppSettings {
             SettingsKey.useCalendar: true,
             SettingsKey.defaultTemplate: "Meeting Notes",
             SettingsKey.ignoredBundleIDs: defaultIgnoredBundleIDs,
+            SettingsKey.autoStopRecording: true,
+            SettingsKey.didCompleteOnboarding: false,
         ])
     }
 
@@ -43,4 +47,6 @@ enum AppSettings {
     static var ignoredBundleIDs: [String] {
         defaults.stringArray(forKey: SettingsKey.ignoredBundleIDs) ?? defaultIgnoredBundleIDs
     }
+    static var autoStopRecording: Bool { defaults.bool(forKey: SettingsKey.autoStopRecording) }
+    static var didCompleteOnboarding: Bool { defaults.bool(forKey: SettingsKey.didCompleteOnboarding) }
 }

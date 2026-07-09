@@ -55,7 +55,11 @@ enum ProcessingPipeline {
         var turns: [DiarizedTurn]?
         if AppSettings.identifySpeakers, let out = systemOut, !out.segments.isEmpty {
             onProgress("Identifying speakers…")
-            do { turns = try await Diarizer.diarize(fileURL: systemURL) }
+            do {
+                turns = try await Diarizer.diarize(
+                    fileURL: systemURL,
+                    maxSpeakers: meeting.attendees.isEmpty ? nil : meeting.attendees.count + 1)
+            }
             catch { notices.append("Speaker identification unavailable: \(error.localizedDescription)") }
         }
 
