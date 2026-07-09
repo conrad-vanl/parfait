@@ -1,0 +1,48 @@
+name: "Abuse report: notes.parfait.to"
+description: Report a notes.parfait.to link that's phishing, malware, infringing, or otherwise abusive.
+title: "[abuse] "
+labels: ["abuse"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to report a `notes.parfait.to` link. This is the canonical
+        abuse-intake route for the notes proxy — there's no separate abuse@
+        inbox or DMCA agent yet, so reports filed here are what gets acted on.
+
+  - type: input
+    id: url
+    attributes:
+      label: Reported URL
+      description: The full notes.parfait.to link you're reporting.
+      placeholder: https://notes.parfait.to/<user>/<gistid>/raw/<sha>/<filename>.html
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Phishing
+        - Malware
+        - Copyright
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What you observed
+      description: What made this link look abusive? Include any relevant context (what it claimed to be, what it asked you to do, etc.).
+    validations:
+      required: true
+
+  - type: input
+    id: contact
+    attributes:
+      label: Contact info (optional)
+      description: An email or handle if you're open to being contacted for follow-up.
+    validations:
+      required: false

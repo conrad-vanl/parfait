@@ -12,6 +12,15 @@ enum SettingsKey {
     static let autoStopRecording = "autoStopRecording"      // stop ~8s after the meeting app releases the mic
     static let didCompleteOnboarding = "didCompleteOnboarding" // first-run walkthrough finished
     static let systemAudioConfirmed = "systemAudioConfirmed"   // tap has captured real (non-silent) audio at least once
+    static let renderHost = "renderHost"                     // host used for rendered-HTML gist links
+}
+
+/// Host that serves the rendered HTML for a published gist's raw URL.
+/// `.githack` is a transition-only fallback while notes.parfait.to proves itself out —
+/// see docs/plans/2026-07-09-parfait-to-notes-cdn.md §6.
+enum RenderHost: String {
+    case parfaitTo
+    case githack
 }
 
 enum AppSettings {
@@ -28,6 +37,7 @@ enum AppSettings {
             SettingsKey.autoStopRecording: true,
             SettingsKey.didCompleteOnboarding: false,
             SettingsKey.systemAudioConfirmed: false,
+            SettingsKey.renderHost: RenderHost.parfaitTo.rawValue,
         ])
     }
 
@@ -53,4 +63,7 @@ enum AppSettings {
     static var didCompleteOnboarding: Bool { defaults.bool(forKey: SettingsKey.didCompleteOnboarding) }
     static var systemAudioConfirmed: Bool { defaults.bool(forKey: SettingsKey.systemAudioConfirmed) }
     static func markSystemAudioConfirmed() { defaults.set(true, forKey: SettingsKey.systemAudioConfirmed) }
+    static var renderHost: RenderHost {
+        defaults.string(forKey: SettingsKey.renderHost).flatMap(RenderHost.init) ?? .parfaitTo
+    }
 }

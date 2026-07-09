@@ -1,0 +1,44 @@
+name: Deploy notes proxy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - workers/notes-proxy/**
+      - .github/workflows/deploy-notes-proxy.yml
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # GitHub Actions does not allow the `secrets` context directly inside an
+    # `if:` conditional at any level (confirmed with actionlint: only env,
+    # github, inputs, job, matrix, needs, runner, steps, strategy, vars are
+    # valid there). The documented workaround is to mirror the secret into a
+    # job-level env var, then gate steps on that env var instead — this is
+    # what makes the job skip cleanly (no failed run) before
+    # CLOUDFLARE_API_TOKEN has been added as a repo secret.
+    env:
+      HAS_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    defaults:
+      run:
+        working-directory: workers/notes-proxy
+    steps:
+      - uses: actions/checkout@v5
+        if: ${{ env.HAS_CF_TOKEN == 'true' }}
+
+      - uses: actions/setup-node@v4
+        if: ${{ env.HAS_CF_TOKEN == 'true' }}
+        with:
+          node-version: "22"
+
+      - name: Test
+        if: ${{ env.HAS_CF_TOKEN == 'true' }}
+        run: node --test
+
+      - name: Deploy
+        if: ${{ env.HAS_CF_TOKEN == 'true' }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: workers/notes-proxy
+          command: deploy

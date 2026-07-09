@@ -1,0 +1,19 @@
+# Marketing one-pager for parfait.to — Cloudflare Workers Static Assets.
+# Deploy: wrangler deploy (from this directory). See docs/DEPLOY.md.
+name = "parfait-site"
+compatibility_date = "2026-07-09"
+
+# Custom Domains: `wrangler deploy` provisions the DNS records and TLS certs
+# for both hostnames automatically (no manual proxied DNS record needed, which
+# a plain zone route would have required — see docs/DEPLOY.md). Both apex and
+# www serve the page; the canonical <link> in index.html points at the apex, so
+# a www→apex redirect rule is optional polish, not required for correctness.
+routes = [
+  { pattern = "parfait.to", custom_domain = true },
+  { pattern = "www.parfait.to", custom_domain = true },
+]
+
+[assets]
+directory = "./"
+html_handling = "auto-trailing-slash"
+not_found_handling = "404-page"

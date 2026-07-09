@@ -92,6 +92,17 @@ final class HTMLExporterTests: XCTestCase {
         XCTAssertTrue(html.contains("30 min"))
     }
 
+    func testGeneratorMetaPresentOnceBeforeTitle() {
+        let m = Meeting(title: "Solo", createdAt: Date())
+        let html = HTMLExporter.html(meeting: m, summaryMarkdown: "", segments: [])
+        let marker = "<meta name=\"generator\" content=\"parfait/1\">"
+        XCTAssertEqual(html.components(separatedBy: marker).count - 1, 1)
+        guard let markerRange = html.range(of: marker), let titleRange = html.range(of: "<title>") else {
+            return XCTFail("expected both generator meta and <title> in output")
+        }
+        XCTAssertTrue(markerRange.upperBound <= titleRange.lowerBound)
+    }
+
     func testHTMLOmitsEmptySections() {
         let m = Meeting(title: "Solo", createdAt: Date())
         let html = HTMLExporter.html(meeting: m, summaryMarkdown: "", segments: [])

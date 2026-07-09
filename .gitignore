@@ -4,3 +4,4 @@
 dist/
 tasks/
 .DS_Store
+workers/notes-proxy/node_modules/

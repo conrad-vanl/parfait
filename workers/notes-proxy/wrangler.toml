@@ -1,0 +1,21 @@
+name = "parfait-notes-proxy"
+main = "src/index.js"
+compatibility_date = "2026-07-09"
+
+# Custom Domain (not a zone route): `wrangler deploy` provisions the DNS record
+# AND the TLS certificate for notes.parfait.to automatically. A plain
+# `zone_name` route would deploy fine but silently 404 (ERR_NAME_NOT_RESOLVED)
+# until a proxied DNS record was added by hand — custom_domain avoids that.
+routes = [
+  { pattern = "notes.parfait.to", custom_domain = true }
+]
+
+# Phase 2: KV namespace for the blocklist. Ships with an empty/inert
+# namespace at launch — the binding can exist from day one at zero cost;
+# the Worker tolerates it being absent entirely (see src/index.js
+# isBlocked()) so this can also be safely omitted pre-provisioning.
+# Replace <PLACEHOLDER_KV_NAMESPACE_ID> with the real id once created via
+# `wrangler kv namespace create BLOCKLIST` — see docs/DEPLOY.md.
+[[kv_namespaces]]
+binding = "BLOCKLIST"
+id = "<PLACEHOLDER_KV_NAMESPACE_ID>"

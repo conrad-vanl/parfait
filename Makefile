@@ -8,7 +8,7 @@ BINARY     := .build/release/$(APP_NAME)
 # for the best experience (permissions survive rebuilds without re-prompting).
 SIGN_ID    ?= -
 
-.PHONY: build test app run install icon clean
+.PHONY: build test app run install icon og clean
 
 build:
 	swift build -c release
@@ -45,6 +45,12 @@ icon:
 	iconutil -c icns Resources/AppIcon.iconset -o Resources/AppIcon.icns
 	cp Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png Sources/Parfait/Resources/
 	rm -rf Resources/AppIcon.iconset Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png Resources/MenuBarIcon-preview.png
+
+# Regenerate the parfait.to Open Graph preview image (site/og-image.png)
+# from the drawing code, reusing the shipped 1024px app icon.
+og:
+	mkdir -p site
+	swift scripts/MakeOGImage.swift Resources/AppIcon-1024.png site
 
 clean:
 	rm -rf .build "$(DIST)"

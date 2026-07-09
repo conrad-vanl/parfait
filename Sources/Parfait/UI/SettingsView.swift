@@ -162,6 +162,7 @@ private struct IntelligenceSettings: View {
     @State private var claudeInstalled = false
     @State private var claudeLoggedIn = false
     @State private var ghAvailable = false
+    @AppStorage(SettingsKey.renderHost) private var renderHost = RenderHost.parfaitTo.rawValue
 
     var body: some View {
         Form {
@@ -193,6 +194,13 @@ private struct IntelligenceSettings: View {
                     ok: ghAvailable,
                     title: ghAvailable ? "GitHub CLI — ready" : "GitHub CLI — not found",
                     detail: "Publishes meeting pages as secret gists on your own GitHub account. `brew install gh`, then `gh auth login`.")
+                Picker("Rendered link host", selection: $renderHost) {
+                    Text("parfait.to").tag(RenderHost.parfaitTo.rawValue)
+                    Text("githack").tag(RenderHost.githack.rawValue)
+                }
+                Text("githack is a temporary fallback for the transition to notes.parfait.to and will be removed once that's proven stable.")
+                    .font(.parfait(11))
+                    .foregroundStyle(.secondary)
             }
 
             Section("Connect Claude to your meetings") {

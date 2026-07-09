@@ -38,7 +38,8 @@ and writes a transcript with named speakers plus templated notes — without aud
   same way, pointed at every meeting instead of one — Parfait ships an MCP server over your
   library, and you can point Claude Code or Claude Desktop at the same server.
 - **Publish** a beautiful self-contained page (notes + transcript) as a secret gist on your own
-  GitHub (`gh`), with a rendered URL to share — or preview/export the HTML locally with no
+  GitHub (`gh`), with a rendered **notes.parfait.to** URL to share — Parfait's own CDN serving
+  your gist back rendered, not a raw-file host — or preview/export the HTML locally with no
   dependencies at all.
 - **Plain files, no database.** Every meeting is a folder of JSON + Markdown + m4a in
   `~/Library/Application Support/Parfait`. Your data is greppable, backupable, yours.
@@ -56,7 +57,7 @@ Parfait has no backend, no accounts, and no API keys. It composes things your Ma
 | Summaries, titles | Apple Intelligence FoundationModels (on device) |
 | Long meetings, publishing | **Your own** Claude account via the `claude` CLI |
 | Chat (per-meeting and cross-meeting) | **Your own** Claude Desktop, via a deep link + Parfait's MCP connector |
-| Publish target | **Your own** GitHub via `gh` (secret gist), or a local browser preview / HTML export |
+| Publish target | **Your own** GitHub via `gh` (secret gist), served back rendered by **notes.parfait.to** (Parfait's own CDN in front of your gist), or a local browser preview / HTML export |
 
 ## Requirements
 
@@ -140,7 +141,8 @@ model; prose under a heading tells it what belongs there. Placeholders: `{{title
   own accounts.
 - Publishing is always an explicit action. "Secret" gists are unlisted (on your own account,
   deletable) — anyone with the link can view the page; the browser preview and HTML export never
-  leave your Mac.
+  leave your Mac. Deleting the gist stops new visits, but the rendered link is cached at the
+  edge and in browsers, so it can keep serving for up to about a day after deletion.
 
 ## Development
 

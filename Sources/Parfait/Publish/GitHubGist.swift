@@ -42,10 +42,28 @@ enum GitHubGist {
 
     static var isAvailable: Bool { discover() != nil }
 
+    /// Derives a rendered-HTML URL from a gist's raw URL by swapping the host only —
+    /// the path (including the SHA-pinned /raw/ segment) is preserved byte-for-byte.
+    /// `.parfaitTo` targets notes.parfait.to (see docs/plans/2026-07-09-parfait-to-notes-cdn.md);
+    /// `.githack` is the transition-only fallback onto gistcdn.githack.com.
+    static func renderedURL(fromRaw raw: String, host: RenderHost) -> URL? {
+        guard !raw.isEmpty else { return nil }
+        let target: String
+        switch host {
+        case .parfaitTo:
+            target = raw.replacingOccurrences(of: "gist.githubusercontent.com", with: "notes.parfait.to")
+        case .githack:
+            target = raw.replacingOccurrences(of: "gist.githubusercontent.com", with: "gistcdn.githack.com")
+        }
+        return URL(string: target)
+    }
+
     /// Creates a secret gist — unlisted, NOT private: anyone with the link can read it —
     /// and derives a rendered-HTML URL by host-swapping the commit-SHA-pinned raw URL
-    /// onto gistcdn.githack.com (caches permanently per exact URL, hence the pinned SHA).
-    static func publish(html: String, filename: String, description: String) async throws -> (gist: URL, rendered: URL) {
+    /// (see `renderedURL(fromRaw:host:)`).
+    static func publish(
+        html: String, filename: String, description: String, host: RenderHost = AppSettings.renderHost
+    ) async throws -> (gist: URL, rendered: URL) {
         guard let gh = discover() else { throw GistError.ghMissing }
 
         let dir = FileManager.default.temporaryDirectory
@@ -66,9 +84,7 @@ enum GitHubGist {
         let id = gistURL.lastPathComponent
         let raw = try await run(gh, ["api", "gists/\(id)", "--jq", ".files[\"\(filename)\"].raw_url"])
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty,
-              let rendered = URL(string: raw.replacingOccurrences(
-                  of: "gist.githubusercontent.com", with: "gistcdn.githack.com"))
+        guard let rendered = renderedURL(fromRaw: raw, host: host)
         else { throw GistError.failed("Could not resolve raw URL for gist \(id)") }
         return (gist: gistURL, rendered: rendered)
     }

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Parfait — Layered meeting notes. Perfectly local.</title>
+<meta name="description" content="An open-source, on-device meeting notetaker for macOS. Records both sides of your calls, transcribes and summarizes on your Mac — no backend, no accounts, no API keys.">
+<link rel="canonical" href="https://parfait.to/">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta property="og:title" content="Parfait — Layered meeting notes. Perfectly local.">
+<meta property="og:description" content="An open-source, on-device meeting notetaker for macOS — a private, free alternative to Granola.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://parfait.to">
+<meta property="og:image" content="https://parfait.to/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFF9F2">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#252017">
+<style>
+:root{
+  --page:#FFF9F2; --card:#FBF1E4; --accent:#E0396B; --accent-solid:#C22855;
+  --accent-hover:#AD2049; --honey:#F2A93B; --link:#5A6ACF; --ink:#43322B;
+  --muted:rgba(67,50,43,.78); --border:rgba(67,50,43,.12); --btn-text:#FFFFFF;
+  --wash-opacity:.07;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --page:#252017; --card:#322B27; --accent:#F0708F; --accent-solid:#F0708F;
+    --accent-hover:#F58BA4; --honey:#F2B24F; --link:#98A4EE; --ink:#F2E9DE;
+    --muted:rgba(242,233,222,.6); --border:rgba(242,233,222,.14); --btn-text:#252017;
+    --wash-opacity:.09;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{transition:none !important} }
+body{
+  margin:0; background:var(--page); color:var(--ink);
+  font:400 1.0625rem/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  overflow-x:clip; /* hero wash bleeds past the 660px column on purpose */
+}
+.parfait-bar{
+  height:6px;
+  background:linear-gradient(90deg,#FFF9F2 0 25%,#F2A93B 25% 50%,#E0396B 50% 75%,#5A6ACF 75% 100%);
+}
+main{max-width:660px; margin:0 auto; padding:0 24px}
+a{color:var(--link); text-underline-offset:3px}
+a:focus-visible, .cta:focus-visible{outline:2px solid var(--link); outline-offset:2px; border-radius:4px}
+::selection{background:rgba(224,57,107,.18)}
+
+/* ---- hero ---- */
+header.hero{position:relative; text-align:center; padding:88px 0 40px}
+.hero-wash{
+  position:absolute; inset:12% -100vw auto -100vw; height:56%;
+  background:linear-gradient(90deg,#FFF9F2 0 25%,#F2A93B 25% 50%,#E0396B 50% 75%,#5A6ACF 75% 100%);
+  opacity:var(--wash-opacity); pointer-events:none;
+}
+.hero > *{position:relative}
+.hero img{width:112px; height:112px; margin-bottom:20px}
+h1{
+  margin:0 0 20px;
+  font-family:ui-serif, "New York", Georgia, serif;
+  font-size:clamp(2.3rem, 7vw, 3.1rem); line-height:1.12; font-weight:600;
+  letter-spacing:-.015em; color:var(--ink); text-wrap:balance;
+}
+h1 .local{color:var(--accent)}
+.subhead{max-width:34em; margin:0 auto 10px; font-size:1.15rem; line-height:1.6; text-wrap:pretty}
+.hero-small{margin:0 0 34px; color:var(--muted); font-size:.95rem}
+.cta-row{display:flex; gap:22px; justify-content:center; align-items:center; flex-wrap:wrap}
+.cta{
+  display:inline-block; background:var(--accent-solid); color:var(--btn-text);
+  font-weight:600; font-size:1rem; text-decoration:none;
+  padding:12px 24px; border-radius:12px; transition:background .15s ease;
+}
+.cta:hover{background:var(--accent-hover)}
+.cta-secondary{font-weight:600; font-size:1rem}
+.requirements{margin:26px 0 0; color:var(--muted); font-size:.875rem}
+
+/* ---- sections ---- */
+section{padding:44px 0}
+.eyebrow{
+  display:block; margin:0 0 14px; color:var(--accent-solid);
+  font-size:.78rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+}
+section p{margin:0 0 1em; text-wrap:pretty}
+section p:last-child{margin-bottom:0}
+.divider{
+  height:4px; border:0; border-radius:2px; max-width:660px; margin:12px auto;
+  background:linear-gradient(90deg,#FFF9F2 0 25%,#F2A93B 25% 50%,#E0396B 50% 75%,#5A6ACF 75% 100%);
+  opacity:.55;
+}
+.card{
+  background:var(--card); border-radius:16px; padding:22px 26px;
+  border:1px solid var(--border);
+}
+pre{margin:0; overflow-x:auto}
+code{
+  font:.9rem/1.7 ui-monospace, "SF Mono", Menlo, monospace;
+}
+p code{background:var(--card); padding:.1em .35em; border-radius:5px; font-size:.88em}
+.caption{margin-top:12px; color:var(--muted); font-size:.9rem}
+.comment{color:var(--muted)}
+
+/* ---- how it works ---- */
+ol.steps{list-style:none; margin:0; padding:0; display:grid; gap:18px}
+ol.steps li{display:flex; gap:16px; align-items:baseline}
+.step-num{
+  flex:none; width:30px; height:30px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center; align-self:flex-start;
+  font-size:.85rem; font-weight:700; color:#43322B;
+}
+.n1{background:#F6E3C5}.n2{background:#F2A93B}.n3{background:#F5B8CB}.n4{background:#C3CAF0}
+ol.steps b{font-weight:650}
+
+/* ---- footer ---- */
+footer{
+  margin-top:40px; padding:36px 24px 48px; text-align:center;
+  color:var(--muted); font-size:.9rem; border-top:1px solid var(--border);
+}
+footer p{margin:.4em 0}
+@media (max-width:540px){
+  header.hero{padding-top:64px}
+  .cta{display:block; width:100%; text-align:center}
+  .cta-row{flex-direction:column; gap:12px; align-items:stretch}
+  .card{padding:18px 18px}
+  section{padding:36px 0}
+}
+</style>
+</head>
+<body>
+<div class="parfait-bar" aria-hidden="true"></div>
+
+<main>
+  <header class="hero">
+    <div class="hero-wash" aria-hidden="true"></div>
+    <img src="/icon.png" alt="Parfait app icon, a layered parfait glass" width="112" height="112">
+    <h1>Layered meeting notes.<br><span class="local">Perfectly local.</span></h1>
+    <p class="subhead">Parfait notices when a meeting starts, records both sides, transcribes with named speakers, and writes notes into your own templates.</p>
+    <p class="hero-small">Transcribed and summarized entirely on your Mac. Free and open source.</p>
+    <div class="cta-row">
+      <a class="cta" href="https://github.com/conrad-vanl/parfait">View on GitHub</a>
+      <a class="cta-secondary" href="#install">How to install ↓</a>
+    </div>
+    <p class="requirements">Requires macOS 26 (Tahoe) on Apple Silicon, with Apple Intelligence enabled.</p>
+  </header>
+
+  <section id="install">
+    <h2 class="eyebrow">Install</h2>
+    <div class="card">
+<pre><code>git clone https://github.com/conrad-vanl/parfait.git
+cd parfait
+make install        <span class="comment"># builds Parfait.app into /Applications</span>
+open /Applications/Parfait.app</code></pre>
+    </div>
+    <p class="caption">About two minutes, no App Store or developer account. <code>make install</code> signs the app so mic and system-audio permissions survive rebuilds.</p>
+  </section>
+
+  <section>
+    <h2 class="eyebrow">What it is</h2>
+    <p>Parfait is an open-source alternative to Granola: a menu-bar app that records your mic and everyone else's audio, transcribes and separates speakers, and writes notes into a template you control — no bot in your call, no server to reach.</p>
+  </section>
+
+  <hr class="divider" aria-hidden="true">
+
+  <section>
+    <h2 class="eyebrow">How it works</h2>
+    <!-- screenshot slots: capture real app screenshots (menu-bar prompt, recording state,
+         transcript with speakers, notes view) before adding images here — never mockups -->
+    <ol class="steps">
+      <li><span class="step-num n1" aria-hidden="true">1</span><p><b>Detects the meeting.</b> Notices your mic come into use by a call app and offers to record, or starts automatically.</p></li>
+      <li><span class="step-num n2" aria-hidden="true">2</span><p><b>Records both sides.</b> Your mic through AVAudioEngine; everyone else through a Core Audio system-audio tap — no virtual driver, no bot.</p></li>
+      <li><span class="step-num n3" aria-hidden="true">3</span><p><b>Transcribes and names speakers.</b> SpeechAnalyzer timestamps the transcript; FluidAudio tells voices apart; calendar attendees become name suggestions.</p></li>
+      <li><span class="step-num n4" aria-hidden="true">4</span><p><b>Writes your notes.</b> Apple Intelligence summarizes into an editable template — Meeting Notes, 1-on-1, Interview, or your own.</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <h2 class="eyebrow">Publish</h2>
+    <p>When a meeting's worth sharing, Parfait renders notes and transcript into one self-contained page, then publishes it as a secret gist on your own GitHub. A <b>notes.parfait.to</b> link serves it back rendered, shareable with anyone; delete the gist and the link goes dark (cached copies clear within a day). Or skip publishing: preview in-browser or export the HTML, nothing leaving your Mac.</p>
+  </section>
+
+  <hr class="divider" aria-hidden="true">
+
+  <section>
+    <h2 class="eyebrow">Chat with your meetings</h2>
+    <p>Ask a meeting "what did we decide?" — the Chat tab opens Claude Desktop with that meeting loaded through Parfait's <b>MCP</b> connector (the protocol AI tools use to read local data), prompt pre-filled. "Ask your meetings" does the same across your whole library. Point Claude Code at the same server:</p>
+    <div class="card">
+<pre><code>claude mcp add parfait -s user -- "/Applications/Parfait.app/Contents/MacOS/Parfait" --mcp</code></pre>
+    </div>
+    <p class="caption">The MCP server runs locally over your meeting folder — it reads your meetings and manages your note templates, and nothing leaves your Mac but what the model reads through it.</p>
+  </section>
+
+  <section>
+    <h2 class="eyebrow">Privacy</h2>
+    <p>Recording, transcription, diarization, and summarization happen on your Mac: SpeechAnalyzer (Apple's on-device speech engine) transcribes, a small third-party model (FluidAudio) separates speakers, and Apple Intelligence's FoundationModels summarizes. Parfait makes one network call, downloading those models once. Everything else — Claude Desktop for chat, your <code>claude</code> CLI for long meetings, GitHub for publishing — runs through your own signed-in apps, on your own accounts.</p>
+    <p>Parfait has no backend of its own. The one piece the project runs is <b>notes.parfait.to</b>, and only a page you explicitly publish ever reaches it: it fetches your gist to render the shared link and caches it briefly, never storing anything you didn't choose to share.</p>
+    <p>MIT-licensed, about 5,800 lines of Swift: recording in <code>Sources/Parfait/Audio</code>, transcription and diarization in <code>Sources/Parfait/Transcription</code>, summaries in <code>Sources/Parfait/Intelligence</code>.</p>
+    <p>Granola runs a bot in your meeting and sends your audio to a server. Parfait doesn't.</p>
+  </section>
+</main>
+
+<footer>
+  <p><a href="https://github.com/conrad-vanl/parfait">GitHub</a> · <a href="https://github.com/conrad-vanl/parfait/issues">Issues</a> · <a href="/legal">Acceptable Use</a> · MIT License</p>
+  <p>This page has no analytics, no trackers, and no third-party scripts.</p>
+</footer>
+</body>
+</html>
