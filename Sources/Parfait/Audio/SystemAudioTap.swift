@@ -329,6 +329,44 @@ final class SystemAudioTap: @unchecked Sendable {
         }
     }
 
+    // MARK: - Orphan cleanup
+
+    /// Destroys any "Parfait Tap Aggregate" device left behind by a previous process that
+    /// crashed or was force-killed (SIGKILL) mid-recording — graceful termination tears its
+    /// own down via stop(). A leaked aggregate keeps its tap running, so macOS shows the
+    /// "System Audio Recording" indicator with nothing recording. Best-effort; call once at
+    /// launch, before any recording starts, so the only match is a genuine leftover.
+    static func destroyLeftoverAggregates() {
+        var addr = address(kAudioHardwarePropertyDevices)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) == noErr, size > 0
+        else { return }
+        let count = Int(size) / MemoryLayout<AudioObjectID>.stride
+        var devices = [AudioObjectID](repeating: kAudioObjectUnknown, count: count)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &devices) == noErr
+        else { return }
+        for device in devices where isLeftoverAggregate(device) {
+            AudioHardwareDestroyAggregateDevice(device)
+        }
+    }
+
+    private static func isLeftoverAggregate(_ device: AudioObjectID) -> Bool {
+        var transportAddr = address(kAudioDevicePropertyTransportType)
+        var transport: UInt32 = 0
+        var tSize = UInt32(MemoryLayout<UInt32>.stride)
+        guard AudioObjectGetPropertyData(device, &transportAddr, 0, nil, &tSize, &transport) == noErr,
+              transport == kAudioDeviceTransportTypeAggregate else { return false }
+        var nameAddr = address(kAudioObjectPropertyName)
+        var name: CFString = "" as CFString
+        var nSize = UInt32(MemoryLayout<CFString>.stride)
+        let ok = withUnsafeMutablePointer(to: &name) { pointer in
+            AudioObjectGetPropertyData(device, &nameAddr, 0, nil, &nSize, pointer) == noErr
+        }
+        return ok && (name as String) == "Parfait Tap Aggregate"
+    }
+
     // MARK: - HAL helpers
 
     private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {

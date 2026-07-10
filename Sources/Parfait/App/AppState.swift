@@ -32,6 +32,9 @@ final class AppState: NSObject, ObservableObject {
     private let detector = MeetingDetector()
     private var pendingDetection: MicEvent?
     private var pendingAutoStop: Task<Void, Never>?
+    /// Retains the detection chime while it plays — a temporary NSSound can be
+    /// deallocated mid-play. Replaced on each detection.
+    private var detectionChime: NSSound?
     private static let autoStopGrace: Duration = .seconds(8)
     private let log = Logger(subsystem: "io.github.conrad-vanl.Parfait", category: "detection")
     /// Closes the reentrancy window between startRecording's guard and its
@@ -53,9 +56,15 @@ final class AppState: NSObject, ObservableObject {
 
     func bootstrap() {
         configureNotifications()
-        if AppSettings.detectMeetings { startDetection() }
         finalizeOrphans()
         Task.detached { _ = ClaudeCLI.resolveBlocking() } // warm the CLI probe off-main
+        // Clear a "System Audio Recording" indicator left stuck by a previously hard-killed
+        // process. Off-main (coreaudiod IPC can stall at launch), but gated BEFORE detection
+        // starts so the name-based sweep can never race a live tap of ours and destroy it.
+        Task { @MainActor in
+            await Task.detached { SystemAudioTap.destroyLeftoverAggregates() }.value
+            if AppSettings.detectMeetings { startDetection() }
+        }
     }
 
     /// Called from applicationShouldTerminate: finalize audio files so the
@@ -385,13 +394,31 @@ final class AppState: NSObject, ObservableObject {
         await refreshNotificationStatus()
     }
 
+    /// A short, Focus-proof audible cue for a detected meeting. NSSound plays through the
+    /// default output device regardless of notification permission or Do Not Disturb — the
+    /// reliable half of "make the prompt apparent" (the menu-bar glyph is the visible half).
+    private func chime() {
+        guard Bundle.main.bundleIdentifier != nil else { return } // silent under bare `swift run`/tests
+        // Two meetings starting within a second shouldn't clobber the first still-playing
+        // NSSound (deallocating it mid-play) or stack into a double-ping — one clean chime.
+        if detectionChime?.isPlaying == true { return }
+        let sound = NSSound(named: NSSound.Name("Ping"))
+        detectionChime = sound
+        sound?.play()
+    }
+
     private func notifyMeetingDetected(app: String) {
         guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = "Meeting detected"
         content.body = "\(app) started using the microphone. Record it?"
         content.categoryIdentifier = "MEETING_DETECTED"
+        // Sound is played separately (chime()) rather than on the notification: breaking a
+        // notification through Focus/Do Not Disturb needs the Time Sensitive entitlement, which
+        // requires an Apple provisioning profile and would break the ad-hoc build. A plain
+        // NSSound plays regardless of Focus or even whether notifications are authorized at all.
         content.sound = nil
+        chime()
         let request = UNNotificationRequest(
             identifier: "detected-\(Date().timeIntervalSince1970)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in

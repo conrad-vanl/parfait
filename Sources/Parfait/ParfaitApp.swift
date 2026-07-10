@@ -13,7 +13,7 @@ struct ParfaitApp: App {
             MenuBarView()
                 .environmentObject(app)
         } label: {
-            MenuBarLabel(isRecording: app.isRecording)
+            MenuBarLabel(isRecording: app.isRecording, detecting: app.detectedAppName != nil)
         }
         .menuBarExtraStyle(.window)
 
@@ -99,10 +99,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MenuBarLabel: View {
     let isRecording: Bool
+    /// A meeting-ish app grabbed the mic and we're waiting on the user to hit Record.
+    /// Swap in an attention glyph so the prompt is visible in the menu bar even if the
+    /// notification was missed, quieted, or denied outright.
+    var detecting: Bool = false
 
     var body: some View {
         if isRecording {
             Image(systemName: "record.circle.fill")
+        } else if detecting {
+            Image(systemName: "waveform.badge.exclamationmark")
         } else if let icon = Self.templateIcon {
             Image(nsImage: icon)
         } else {
