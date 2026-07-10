@@ -6,6 +6,14 @@ import os
 import SwiftUI
 import UserNotifications
 
+/// Progressive-summary phase for a meeting, driving the Notes tab badge.
+enum SummaryProgress {
+    /// The notes are streaming in (a draft, or the sole pass when there's no live transcript).
+    case streaming
+    /// A draft is on screen and the improvement pass is running.
+    case improving
+}
+
 @MainActor
 final class AppState: NSObject, ObservableObject {
     static let shared = AppState()
@@ -20,6 +28,11 @@ final class AppState: NSObject, ObservableObject {
     @Published var recordingCardDismissed = false
     /// meeting id → human-readable pipeline stage, while processing.
     @Published private(set) var processingStage: [UUID: String] = [:]
+    /// meeting id → notes being streamed in right now. The Notes tab shows this in
+    /// place of the saved summary while present (draft or sole pass).
+    @Published private(set) var streamingSummaries: [UUID: String] = [:]
+    /// meeting id → progressive-summary phase, for the Notes tab badge.
+    @Published private(set) var summaryProgress: [UUID: SummaryProgress] = [:]
     /// A meeting-ish app started using the mic and we're waiting on the user.
     @Published private(set) var detectedAppName: String?
     @Published var lastError: String?
@@ -282,13 +295,32 @@ final class AppState: NSObject, ObservableObject {
         processingStage[id] = "Starting…"
         var entry = store.meeting(id: id) ?? meeting
         entry.state = .processing
+        // Surface the live transcript immediately so the Transcript tab isn't blank
+        // while the accurate, diarized version is still being built. The batch pass
+        // overwrites both the transcript and the speakers when it finishes.
+        let live = store.archive.liveTranscript(for: id)
+        if !live.isEmpty, store.transcript(for: id).isEmpty {
+            try? store.archive.saveTranscript(live, for: id)
+            entry.speakers = LiveTranscriber.speakers
+        }
         store.upsert(entry)
         let titleAtEntry = entry.title
 
-        let outcome = await ProcessingPipeline.run(meeting: entry, archive: store.archive) { stage in
-            Task { @MainActor in AppState.shared.processingStage[id] = stage }
-        }
+        let outcome = await ProcessingPipeline.run(
+            meeting: entry, archive: store.archive,
+            onProgress: { stage in
+                Task { @MainActor in AppState.shared.processingStage[id] = stage }
+            },
+            onSummary: { update in
+                // Ordered main-thread delivery (FIFO) so streamed deltas and the
+                // draftSaved/done markers never arrive out of order.
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { AppState.shared.applySummaryUpdate(update, for: id) }
+                }
+            })
         processingStage[id] = nil
+        streamingSummaries[id] = nil
+        summaryProgress[id] = nil
         // The durable transcript now supersedes the live one (if any was written).
         store.archive.removeLiveTranscript(for: id)
 
@@ -307,6 +339,22 @@ final class AppState: NSObject, ObservableObject {
         store.upsert(fresh)
         if fresh.state == .ready {
             notifyReady(fresh)
+        }
+    }
+
+    /// Applies a progressive-summary signal from the pipeline. Deltas replace the
+    /// streamed text; `draftSaved`/`done` drop it so the Notes tab reads the saved file.
+    private func applySummaryUpdate(_ update: ProcessingPipeline.SummaryUpdate, for id: UUID) {
+        switch update {
+        case .streaming(let text):
+            summaryProgress[id] = .streaming
+            streamingSummaries[id] = text
+        case .draftSaved:
+            summaryProgress[id] = .improving
+            streamingSummaries[id] = nil // the saved draft now backs the view
+        case .done:
+            summaryProgress[id] = nil
+            streamingSummaries[id] = nil
         }
     }
 
@@ -345,10 +393,16 @@ final class AppState: NSObject, ObservableObject {
             store.upsert(entry)
         }
         processingStage[meetingID] = "Summarizing…"
+        summaryProgress[meetingID] = .streaming
+        streamingSummaries[meetingID] = ""
         let segments = store.transcript(for: meetingID)
         let text = TranscriptFormatter.plainText(segments, speakers: entry.speakers)
         let titleAtEntry = entry.title
-        let outcome = await ProcessingPipeline.summarize(meeting: entry, transcript: text)
+        let outcome = await ProcessingPipeline.summarize(meeting: entry, transcript: text) { delta in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { AppState.shared.streamingSummaries[meetingID] = delta }
+            }
+        }
 
         var generatedTitle: String?
         if case .success(let summary, let provider) = outcome,
@@ -357,6 +411,8 @@ final class AppState: NSObject, ObservableObject {
             generatedTitle = await ProcessingPipeline.generateTitle(summary: summary, provider: provider)
         }
         processingStage[meetingID] = nil
+        streamingSummaries[meetingID] = nil
+        summaryProgress[meetingID] = nil
 
         guard var fresh = store.meeting(id: meetingID) else { return }
         switch outcome {

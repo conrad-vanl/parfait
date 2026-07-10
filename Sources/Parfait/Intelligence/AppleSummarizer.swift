@@ -41,25 +41,56 @@ enum AppleSummarizer {
         text.count <= inputBudgetChars
     }
 
+    private static let summarizeInstructions = """
+    You summarize meeting transcripts. Fill in the headings of the user's template from the \
+    transcript, omitting any section with no content. Use speaker names as they appear in the \
+    transcript. Output ONLY the finished markdown — no preamble or commentary.
+    """
+
     static func summarize(transcript: String, filledTemplate: String) async throws -> String {
         try ensureAvailable()
         let model = transformationModel
-        let instructions = """
-        You summarize meeting transcripts. Fill in the headings of the user's template from the \
-        transcript, omitting any section with no content. Use speaker names as they appear in the \
-        transcript. Output ONLY the finished markdown — no preamble or commentary.
-        """
         let fullPrompt = "Template:\n\(filledTemplate)\n\nTranscript:\n\(transcript)"
 
         do {
-            return try await respondOnce(model: model, instructions: instructions, prompt: fullPrompt)
+            return try await respondOnce(model: model, instructions: summarizeInstructions, prompt: fullPrompt)
         } catch let error as LanguageModelSession.GenerationError {
             guard case .exceededContextWindowSize = error else { throw wrap(error) }
         } catch {
             throw wrap(error)
         }
+        return try await mapReduce(transcript: transcript, filledTemplate: filledTemplate, model: model)
+    }
 
-        // TN3193 map-reduce: fresh session per chunk, then combine partials against the template.
+    /// Same as `summarize`, but streams the answer: `onDelta` is called with the
+    /// growing markdown after each snapshot. Falls back to the non-streaming
+    /// map-reduce for transcripts that overflow the context window (no deltas for
+    /// that branch — those are the long meetings that need chunking anyway).
+    static func summarizeStreaming(
+        transcript: String,
+        filledTemplate: String,
+        onDelta: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        try ensureAvailable()
+        let model = transformationModel
+        let fullPrompt = "Template:\n\(filledTemplate)\n\nTranscript:\n\(transcript)"
+
+        do {
+            return try await streamOnce(
+                model: model, instructions: summarizeInstructions, prompt: fullPrompt, onDelta: onDelta)
+        } catch let error as LanguageModelSession.GenerationError {
+            guard case .exceededContextWindowSize = error else { throw wrap(error) }
+        } catch {
+            throw wrap(error)
+        }
+        return try await mapReduce(transcript: transcript, filledTemplate: filledTemplate, model: model)
+    }
+
+    /// TN3193 map-reduce: fresh session per chunk, then combine the partials against
+    /// the template. Used when a transcript overflows the on-device context window.
+    private static func mapReduce(
+        transcript: String, filledTemplate: String, model: SystemLanguageModel
+    ) async throws -> String {
         do {
             let chunks = chunk(transcript)
             var partials: [String] = []
@@ -70,12 +101,12 @@ enum AppleSummarizer {
 
                 \(piece)
                 """
-                partials.append(try await respondOnce(model: model, instructions: instructions, prompt: prompt))
+                partials.append(try await respondOnce(model: model, instructions: summarizeInstructions, prompt: prompt))
             }
             let reducePrompt = "Template:\n\(filledTemplate)\n\n"
                 + "Combine these partial summaries of one meeting into a single summary following the template:\n\n"
                 + partials.joined(separator: "\n\n---\n\n")
-            return try await respondOnce(model: model, instructions: instructions, prompt: reducePrompt)
+            return try await respondOnce(model: model, instructions: summarizeInstructions, prompt: reducePrompt)
         } catch {
             throw wrap(error)
         }
@@ -137,6 +168,36 @@ enum AppleSummarizer {
                 return try await respondOnce(
                     model: model, instructions: instructions, prompt: prompt, retryOnRateLimit: false
                 )
+            }
+            throw error
+        }
+    }
+
+    /// Streaming counterpart to `respondOnce`. Each snapshot's `content` is the
+    /// full text so far (String responses aren't partial structs), so we just
+    /// forward it and keep the last one as the result.
+    private static func streamOnce(
+        model: SystemLanguageModel,
+        instructions: String,
+        prompt: String,
+        onDelta: @escaping @Sendable (String) -> Void,
+        retryOnRateLimit: Bool = true
+    ) async throws -> String {
+        let session = LanguageModelSession(model: model, instructions: instructions)
+        do {
+            var last = ""
+            let stream = session.streamResponse(to: prompt, options: GenerationOptions(temperature: 0.3))
+            for try await snapshot in stream {
+                last = snapshot.content
+                onDelta(last)
+            }
+            return last
+        } catch let error as LanguageModelSession.GenerationError {
+            if case .rateLimited = error, retryOnRateLimit {
+                try await Task.sleep(for: .seconds(3))
+                return try await streamOnce(
+                    model: model, instructions: instructions, prompt: prompt,
+                    onDelta: onDelta, retryOnRateLimit: false)
             }
             throw error
         }

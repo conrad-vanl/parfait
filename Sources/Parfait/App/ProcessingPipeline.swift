@@ -15,16 +15,60 @@ enum ProcessingPipeline {
         var generatedTitle: String?
     }
 
+    /// Progressive summary signal for the UI. The draft streams in seconds after
+    /// Stop; the improvement replaces it once the accurate transcript is ready.
+    enum SummaryUpdate: Sendable {
+        /// Growing markdown of the pass currently streaming (draft, or the sole pass
+        /// when there is no live transcript). May be empty at the very start.
+        case streaming(String)
+        /// A draft is saved; an improvement pass will follow (badge: "Draft · improving").
+        case draftSaved
+        /// The progressive phase is over — the UI should read the saved summary.
+        case done
+    }
+
     static func run(
         meeting: Meeting,
         archive: MeetingArchive,
-        onProgress: @escaping @Sendable (String) -> Void
+        onProgress: @escaping @Sendable (String) -> Void,
+        onSummary: @escaping @Sendable (SummaryUpdate) -> Void = { _ in }
     ) async -> Outcome {
-        let micURL = archive.micURL(for: meeting.id)
-        let systemURL = archive.systemURL(for: meeting.id)
+        let id = meeting.id
+        let micURL = archive.micURL(for: id)
+        let systemURL = archive.systemURL(for: id)
         let hasMic = FileManager.default.fileExists(atPath: micURL.path)
         let hasSystem = FileManager.default.fileExists(atPath: systemURL.path)
         var notices: [String] = meeting.notice.map { [$0] } ?? []
+        var outcome = Outcome(state: .ready)
+
+        // 0. Draft the notes from the live transcript first, so they appear seconds
+        //    after Stop (streamed token by token) while the accurate transcript is
+        //    still being built. A failed draft just falls through to the batch pass.
+        let liveSegments = archive.liveTranscript(for: id)
+        let liveText = TranscriptFormatter.plainText(liveSegments, speakers: LiveTranscriber.speakers)
+        var draft: (text: String, provider: String)?
+        if !liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            onSummary(.streaming(""))
+            switch await summarize(
+                meeting: meeting, transcript: liveText, onDelta: { onSummary(.streaming($0)) }) {
+            case .success(let text, let provider):
+                // Only treat the draft as real if it actually persisted. If the write
+                // fails, leaving `draft` nil lets the improvement pass save normally
+                // rather than the edit-guard (disk == draft.text) blocking it too.
+                do {
+                    try archive.saveSummary(text, for: id)
+                    draft = (text, provider)
+                    outcome.summaryProvider = provider
+                    onSummary(.draftSaved)
+                } catch {
+                    onSummary(.done)
+                }
+            case .failure:
+                // No draft — clear the transient streaming UI so it doesn't linger
+                // through transcription; the batch pass will write the notes.
+                onSummary(.done)
+            }
+        }
 
         // 1. Transcribe.
         onProgress("Preparing speech model…")
@@ -46,9 +90,20 @@ enum ProcessingPipeline {
         }
 
         guard micOut != nil || systemOut != nil else {
-            return Outcome(
-                state: .failed,
-                notice: notices.isEmpty ? "No audio could be transcribed." : notices.joined(separator: " "))
+            // No accurate transcript. If a draft (and the live transcript AppState
+            // already surfaced) exist, keep them rather than failing the meeting —
+            // and still name the meeting from the draft.
+            if let draft, meeting.calendarEventTitle == nil {
+                onProgress("Naming the meeting…")
+                outcome.generatedTitle = await generateTitle(summary: draft.text, provider: draft.provider)
+            }
+            onSummary(.done)
+            outcome.state = draft == nil ? .failed : .ready
+            outcome.summaryProvider = draft?.provider
+            outcome.notice = notices.isEmpty
+                ? (draft == nil ? "No audio could be transcribed." : nil)
+                : notices.joined(separator: " ")
+            return outcome
         }
 
         // 2. Speakers.
@@ -70,28 +125,55 @@ enum ProcessingPipeline {
         let myName = NSFullUserName().isEmpty ? "Me" : NSFullUserName()
         let (segments, speakers) = SpeakerLabeler.label(
             mic: micOut, system: systemOut, systemTurns: turns, myName: myName)
-        try? archive.saveTranscript(segments, for: meeting.id)
-
-        var outcome = Outcome(state: .ready, speakers: speakers)
+        try? archive.saveTranscript(segments, for: id)
+        outcome.speakers = speakers
         var labeled = meeting
         labeled.speakers = speakers
 
-        // 3. Summary + title.
+        // 3. Improve the notes off the accurate transcript (or write them for the
+        //    first time if there was no draft).
         onProgress("Summarizing…")
-        let transcriptText = TranscriptFormatter.plainText(segments, speakers: speakers)
-        let summaryOutcome = await summarize(meeting: labeled, transcript: transcriptText)
-        switch summaryOutcome {
-        case .success(let summary, let provider):
-            try? archive.saveSummary(summary, for: meeting.id)
-            outcome.summaryProvider = provider
-            if meeting.calendarEventTitle == nil {
-                onProgress("Naming the meeting…")
-                outcome.generatedTitle = await generateTitle(summary: summary, provider: provider)
-            }
-        case .failure(let why):
-            notices.append(why)
+        let accurateText = TranscriptFormatter.plainText(segments, speakers: speakers)
+        let finalOutcome: SummaryOutcome
+        if let draft, sameContent(liveSegments, segments) {
+            // The accurate transcript carries the same words as the live one, so the
+            // draft already reflects them — skip a second model call.
+            finalOutcome = .success(draft.text, provider: draft.provider)
+        } else if draft != nil {
+            // Improve quietly: the draft stays on screen (badge: "Draft · improving")
+            // and is replaced atomically when the better version lands.
+            finalOutcome = await summarize(meeting: labeled, transcript: accurateText)
+        } else {
+            // No draft — stream the sole pass into the notes.
+            onSummary(.streaming(""))
+            finalOutcome = await summarize(
+                meeting: labeled, transcript: accurateText, onDelta: { onSummary(.streaming($0)) })
         }
 
+        switch finalOutcome {
+        case .success(let summary, let provider):
+            // Edit-guard: if the user edited the draft while we were transcribing,
+            // keep their version rather than clobbering it with the improvement.
+            if draft == nil || archive.summary(for: id) == draft?.text {
+                try? archive.saveSummary(summary, for: id)
+                outcome.summaryProvider = provider
+            }
+        case .failure(let why):
+            // Improvement failed but the draft (if any) stands.
+            if draft == nil { notices.append(why) }
+        }
+
+        // Name the meeting from whatever notes we ended up with — the improvement,
+        // the draft it fell back to, or the user's own edit — so a draft-only or
+        // improve-failed meeting still gets a title, not just the happy path.
+        let finalText = archive.summary(for: id)
+        if meeting.calendarEventTitle == nil, !finalText.isEmpty {
+            onProgress("Naming the meeting…")
+            outcome.generatedTitle = await generateTitle(
+                summary: finalText, provider: outcome.summaryProvider ?? "apple")
+        }
+
+        onSummary(.done)
         outcome.notice = notices.isEmpty ? nil : notices.joined(separator: " ")
         return outcome
     }
@@ -101,8 +183,23 @@ enum ProcessingPipeline {
         case failure(String)
     }
 
-    /// On-device first; the user's Claude account when the local model can't.
-    static func summarize(meeting: Meeting, transcript: String) async -> SummaryOutcome {
+    /// True when two transcripts carry the same words (ignoring speaker labels and
+    /// timing) — used to skip a redundant improvement pass.
+    static func sameContent(_ a: [TranscriptSegment], _ b: [TranscriptSegment]) -> Bool {
+        func signature(_ segs: [TranscriptSegment]) -> [String] {
+            TranscriptText.wordTokens(segs.map(\.text).joined(separator: " "))
+        }
+        return signature(a) == signature(b)
+    }
+
+    /// On-device first; the user's Claude account when the local model can't. When
+    /// `onDelta` is given, the chosen engine streams its markdown as it's generated
+    /// (`onDelta` receives the growing text); otherwise it runs buffered.
+    static func summarize(
+        meeting: Meeting,
+        transcript: String,
+        onDelta: (@Sendable (String) -> Void)? = nil
+    ) async -> SummaryOutcome {
         guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failure("The transcript was empty, so there is nothing to summarize.")
         }
@@ -110,31 +207,48 @@ enum ProcessingPipeline {
         let template = templates.template(named: meeting.templateName ?? AppSettings.defaultTemplate)
             ?? TemplateStore.builtins[0]
         let filled = TemplateRenderer.fill(template.body, meeting: meeting)
+        let prompt = """
+        Write meeting notes from the transcript provided as input, following this \
+        template exactly (keep its headings; omit sections that would be empty):
+
+        \(filled)
+        """
+        let systemPrompt = "You are Parfait, a meeting notetaker. Output only clean Markdown notes — no preamble, no code fences."
 
         // Each engine returns a summary, or nil if it's unavailable or errors (so we
         // fall through to the other). Claude records its error so a Claude-only
         // failure still surfaces a useful message.
         func apple() async -> SummaryOutcome? {
-            guard AppleSummarizer.isAvailable,
-                  let summary = try? await AppleSummarizer.summarize(
+            guard AppleSummarizer.isAvailable else { return nil }
+            let summary: String?
+            if let onDelta {
+                summary = try? await AppleSummarizer.summarizeStreaming(
+                    transcript: transcript, filledTemplate: filled, onDelta: onDelta)
+            } else {
+                summary = try? await AppleSummarizer.summarize(
                     transcript: transcript, filledTemplate: filled)
-            else { return nil }
-            return .success(summary, provider: "apple")
+            }
+            return summary.map { .success($0, provider: "apple") }
         }
         var claudeError: String?
         func claude() async -> SummaryOutcome? {
             guard ClaudeCLI.isInstalled else { return nil }
             do {
-                let result = try await ClaudeCLI.run(
-                    prompt: """
-                    Write meeting notes from the transcript provided as input, following this \
-                    template exactly (keep its headings; omit sections that would be empty):
-
-                    \(filled)
-                    """,
-                    stdin: transcript,
-                    systemPrompt: "You are Parfait, a meeting notetaker. Output only clean Markdown notes — no preamble, no code fences."
-                )
+                let result: ClaudeCLI.RunResult
+                if let onDelta {
+                    // Fall back to the buffered run if the streaming path itself fails
+                    // (e.g. a stream-json parse issue) — same CLI, same result shape.
+                    do {
+                        result = try await ClaudeCLI.stream(
+                            prompt: prompt, stdin: transcript, systemPrompt: systemPrompt, onDelta: onDelta)
+                    } catch {
+                        result = try await ClaudeCLI.run(
+                            prompt: prompt, stdin: transcript, systemPrompt: systemPrompt)
+                    }
+                } else {
+                    result = try await ClaudeCLI.run(
+                        prompt: prompt, stdin: transcript, systemPrompt: systemPrompt)
+                }
                 return .success(result.text, provider: "claude")
             } catch {
                 claudeError = error.localizedDescription

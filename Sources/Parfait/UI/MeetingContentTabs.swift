@@ -10,6 +10,7 @@ struct NotesTab: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 templateMenu
+                summaryBadge
                 Spacer()
                 if draft != nil {
                     Button("Cancel") { draft = nil }
@@ -25,7 +26,7 @@ struct NotesTab: View {
                     } label: {
                         Label("Edit", systemImage: "pencil")
                     }
-                    .disabled(summary.isEmpty)
+                    .disabled(summary.isEmpty || streaming != nil)
                 }
             }
             .controlSize(.small)
@@ -40,11 +41,11 @@ struct NotesTab: View {
                     .cardStyle()
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
-            } else if summary.isEmpty {
-                if app.processingStage[meeting.id] != nil {
+            } else if displayed.isEmpty {
+                if streaming != nil || app.processingStage[meeting.id] != nil {
                     EmptyStateView(
                         title: "Working on it…",
-                        message: app.processingStage[meeting.id] ?? "")
+                        message: app.processingStage[meeting.id] ?? "Writing your notes…")
                 } else {
                     EmptyStateView(
                         title: "No notes yet",
@@ -52,7 +53,7 @@ struct NotesTab: View {
                 }
             } else {
                 ScrollView {
-                    MarkdownText(markdown: summary)
+                    MarkdownText(markdown: displayed)
                         .frame(maxWidth: 660, alignment: .leading)
                         .padding(20)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -62,6 +63,27 @@ struct NotesTab: View {
     }
 
     private var summary: String { app.store.summary(for: meeting.id) }
+    /// Notes streaming in right now (nil once a pass is saved). Shown in place of
+    /// the saved summary so the reader watches the draft fill in.
+    private var streaming: String? { app.streamingSummaries[meeting.id] }
+    private var displayed: String { streaming ?? summary }
+
+    /// "Writing…" while the draft streams; "Draft · improving" while the accurate
+    /// transcript is being turned into the better version.
+    @ViewBuilder
+    private var summaryBadge: some View {
+        if let progress = app.summaryProgress[meeting.id] {
+            HStack(spacing: 5) {
+                ProgressView().controlSize(.small).scaleEffect(0.6)
+                Text(progress == .improving ? "Draft · improving" : "Writing…")
+                    .font(.parfait(11))
+                    .foregroundStyle(.secondary)
+            }
+            .help(progress == .improving
+                  ? "These notes were drafted from the live transcript. A more accurate version is on the way."
+                  : "Writing notes from the transcript…")
+        }
+    }
 
     private var templateMenu: some View {
         Menu {

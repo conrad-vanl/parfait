@@ -199,6 +199,123 @@ struct ClaudeCLI {
         return RunResult(text: text, sessionID: envelope.sessionID)
     }
 
+    /// Like `run`, but streams the assistant's text as it's generated: `onDelta` is
+    /// called with the growing text after each chunk. Uses the CLI's realtime mode
+    /// (stream-json + partial messages). Callers should fall back to `run` on throw.
+    static func stream(
+        prompt: String,
+        stdin: String? = nil,
+        systemPrompt: String? = nil,
+        model: String = "sonnet",
+        onDelta: @escaping @Sendable (String) -> Void
+    ) async throws -> RunResult {
+        guard let cli = resolveBlocking() else { throw ClaudeCLIError.notInstalled }
+        guard isLoggedIn() else { throw ClaudeCLIError.notLoggedIn }
+
+        let process = Process()
+        process.executableURL = cli
+        var args = ["-p", prompt,
+                    "--output-format", "stream-json",
+                    "--include-partial-messages",
+                    "--verbose",
+                    "--model", model,
+                    "--max-turns", "1",
+                    "--strict-mcp-config",
+                    "--tools", ""]
+        if let systemPrompt { args += ["--system-prompt", systemPrompt] }
+        process.arguments = args
+        process.currentDirectoryURL = workDir
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        async let parsed = streamStdout(stdoutPipe.fileHandleForReading, onDelta: onDelta)
+        async let stderrData = readToEnd(stderrPipe.fileHandleForReading)
+
+        let stdinData = stdin.map { Data($0.utf8) }
+        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+            do {
+                try process.run()
+            } catch {
+                try? stdoutPipe.fileHandleForWriting.close()
+                try? stderrPipe.fileHandleForWriting.close()
+                continuation.resume(throwing: ClaudeCLIError.failed(status: -1, stderr: error.localizedDescription))
+                return
+            }
+            DispatchQueue.global(qos: .utility).async {
+                let writer = stdinPipe.fileHandleForWriting
+                if let stdinData { try? writer.write(contentsOf: stdinData) }
+                try? writer.close()
+            }
+        }
+
+        let result = await parsed
+        let err = await stderrData
+        guard status == 0 else {
+            throw ClaudeCLIError.failed(status: status, stderr: tail(String(decoding: err, as: UTF8.self)))
+        }
+        if result.isError { throw ClaudeCLIError.failed(status: status, stderr: tail(result.text)) }
+        guard !result.text.isEmpty else { throw ClaudeCLIError.badOutput }
+        return RunResult(text: result.text, sessionID: result.sessionID)
+    }
+
+    /// Reads newline-delimited stream-json events off `handle` as they arrive,
+    /// forwarding assistant text deltas to `onDelta` and returning the final result.
+    /// Splitting on the 0x0A byte is UTF-8-safe (newline never appears mid-codepoint).
+    private static func streamStdout(
+        _ handle: FileHandle,
+        onDelta: @escaping @Sendable (String) -> Void
+    ) async -> (text: String, sessionID: String?, isError: Bool) {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                var buffer = Data()
+                var accumulated = ""
+                var finalText: String?
+                var sessionID: String?
+                var isError = false
+
+                func consume(_ line: Data) {
+                    guard !line.isEmpty,
+                          let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                          let type = obj["type"] as? String
+                    else { return }
+                    switch type {
+                    case "stream_event":
+                        if let event = obj["event"] as? [String: Any],
+                           event["type"] as? String == "content_block_delta",
+                           let delta = event["delta"] as? [String: Any],
+                           delta["type"] as? String == "text_delta",
+                           let text = delta["text"] as? String, !text.isEmpty {
+                            accumulated += text
+                            onDelta(accumulated)
+                        }
+                    case "result":
+                        finalText = obj["result"] as? String
+                        sessionID = obj["session_id"] as? String
+                        isError = obj["is_error"] as? Bool ?? false
+                    default:
+                        break
+                    }
+                }
+
+                while case let chunk = handle.availableData, !chunk.isEmpty {
+                    buffer.append(chunk)
+                    while let nl = buffer.firstIndex(of: 0x0A) {
+                        consume(Data(buffer[buffer.startIndex..<nl]))
+                        buffer.removeSubrange(buffer.startIndex...nl)
+                    }
+                }
+                if !buffer.isEmpty { consume(buffer) } // trailing line without newline
+                continuation.resume(returning: (finalText ?? accumulated, sessionID, isError))
+            }
+        }
+    }
+
     // Never --bare (breaks subscription/keychain auth); never --no-session-persistence
     // (resume must keep working). The built-in tool set is ALWAYS pinned explicitly:
     // the default "" means even a run that enables MCP tools loads no Bash/Write/etc.,
