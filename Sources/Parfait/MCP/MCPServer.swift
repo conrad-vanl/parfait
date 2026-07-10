@@ -130,10 +130,12 @@ final class MCPServer {
         ],
         [
             "name": "get_live_transcript",
-            "description": "Get the transcript of the meeting happening RIGHT NOW, as far as it has been transcribed. Use this to answer questions during a live, in-progress meeting. The text is a real-time approximation — it may lag a few seconds behind and isn't final. Says so plainly if no meeting is currently being recorded.",
+            "description": "Get the transcript of the meeting happening RIGHT NOW, to answer a question during a live, in-progress meeting. Returns only the most recent minutes by default (the user is mid-meeting and wants a fast answer); pass a larger \"minutes\", or minutes=0 for the whole meeting so far, when a question needs earlier context. The text is a real-time approximation — it may lag a few seconds behind and isn't final. Says so plainly if no meeting is being recorded.",
             "inputSchema": [
                 "type": "object",
-                "properties": [:] as [String: Any],
+                "properties": [
+                    "minutes": ["type": "integer", "description": "How many recent minutes of transcript to return. Omit for the last few minutes; use 0 for the entire meeting so far."],
+                ] as [String: Any],
                 "additionalProperties": false,
             ] as [String: Any],
         ],
@@ -283,7 +285,7 @@ final class MCPServer {
                 + TranscriptFormatter.plainText(segments, speakers: meeting.speakers)
 
         case "get_live_transcript":
-            return Self.liveTranscriptText(archive: archive)
+            return Self.liveTranscriptText(archive: archive, minutes: arguments["minutes"] as? Int)
 
         case "update_summary":
             let meeting = try meetingArg(arguments)
@@ -434,21 +436,46 @@ final class MCPServer {
     /// meeting (state stuck at `.recording` until the next launch's `finalizeOrphans`)
     /// is guarded out by requiring a recently-modified `live.json`. Static +
     /// archive-injected so it's unit-testable.
-    static func liveTranscriptText(archive: MeetingArchive, now: Date = Date()) -> String {
+    /// Default recent window handed back when the caller doesn't ask for more —
+    /// enough for "what should I add/ask right now" without making Claude read
+    /// (and regurgitate) the whole meeting.
+    static let liveDefaultWindowMinutes = 6
+
+    static func liveTranscriptText(archive: MeetingArchive, now: Date = Date(), minutes: Int? = nil) -> String {
         guard let meeting = archive.allMeetings().first(where: { $0.state == .recording }),
               let modified = archive.liveTranscriptModified(for: meeting.id),
               now.timeIntervalSince(modified) < 60
         else { return "No meeting is being recorded right now." }
-        let segments = archive.liveTranscript(for: meeting.id)
-        guard !segments.isEmpty else {
+        let all = archive.liveTranscript(for: meeting.id)
+        guard !all.isEmpty else {
             return "A meeting is being recorded (\"\(meeting.title)\"), but nothing has been transcribed yet."
         }
+
+        // Default to the recent tail; minutes == 0 (or negative) means the whole meeting.
+        let window = minutes ?? liveDefaultWindowMinutes
+        var segments = all
+        var trimmed = false
+        if window > 0, let latest = all.map(\.end).max() {
+            let cutoff = latest - TimeInterval(window) * 60
+            let recent = all.filter { $0.end >= cutoff }
+            if recent.count < all.count { segments = recent; trimmed = true }
+        }
         let body = TranscriptFormatter.plainText(segments, speakers: LiveTranscriber.speakers)
+        let scope = trimmed
+            ? "the last \(window) minutes of the live transcript (call again with a larger \"minutes\", or minutes=0 for the whole meeting, if you need earlier context)"
+            : "the live transcript so far"
+
+        // The result text is the last thing in Claude's context before it answers, so
+        // steer for a fast, short reply here (both before and after the body) rather
+        // than in the pre-filled prompt.
         return """
-        Live transcript of the meeting in progress — "\(meeting.title)". This is a real-time \
-        approximation (it may lag a few seconds behind and isn't final).
+        [The user is IN this meeting right now and needs a fast, glanceable answer. Reply in 1-2 sentences, no preamble, and don't summarize the transcript back — answer only what was asked.]
+
+        Here is \(scope) of "\(meeting.title)". This is a real-time approximation (it may lag a few seconds behind and isn't final):
 
         \(body)
+
+        [Reminder: the user is live in the meeting — answer now, in 1-2 sentences.]
         """
     }
 

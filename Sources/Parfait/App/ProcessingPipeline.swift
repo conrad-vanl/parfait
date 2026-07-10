@@ -58,7 +58,11 @@ enum ProcessingPipeline {
             do {
                 turns = try await Diarizer.diarize(
                     fileURL: systemURL,
-                    maxSpeakers: meeting.attendees.isEmpty ? nil : meeting.attendees.count + 1)
+                    // The diarizer only ever sees the system (remote-only) channel — the
+                    // local mic is a separate track labeled "me" — so the ceiling is the
+                    // remote-attendee count itself, not +1. The old +1 let a single remote
+                    // voice stay split into "Speaker 1" + "Speaker 2" on a 1:1.
+                    maxSpeakers: meeting.attendees.isEmpty ? nil : meeting.attendees.count)
             }
             catch { notices.append("Speaker identification unavailable: \(error.localizedDescription)") }
         }
@@ -107,16 +111,19 @@ enum ProcessingPipeline {
             ?? TemplateStore.builtins[0]
         let filled = TemplateRenderer.fill(template.body, meeting: meeting)
 
-        if AppleSummarizer.isAvailable {
-            do {
-                let summary = try await AppleSummarizer.summarize(
+        // Each engine returns a summary, or nil if it's unavailable or errors (so we
+        // fall through to the other). Claude records its error so a Claude-only
+        // failure still surfaces a useful message.
+        func apple() async -> SummaryOutcome? {
+            guard AppleSummarizer.isAvailable,
+                  let summary = try? await AppleSummarizer.summarize(
                     transcript: transcript, filledTemplate: filled)
-                return .success(summary, provider: "apple")
-            } catch {
-                // Fall through to Claude.
-            }
+            else { return nil }
+            return .success(summary, provider: "apple")
         }
-        if ClaudeCLI.isInstalled {
+        var claudeError: String?
+        func claude() async -> SummaryOutcome? {
+            guard ClaudeCLI.isInstalled else { return nil }
             do {
                 let result = try await ClaudeCLI.run(
                     prompt: """
@@ -130,8 +137,24 @@ enum ProcessingPipeline {
                 )
                 return .success(result.text, provider: "claude")
             } catch {
-                return .failure("Summary failed via Claude: \(error.localizedDescription)")
+                claudeError = error.localizedDescription
+                return nil
             }
+        }
+
+        // Claude first when the user prefers it and it's available (its summaries are
+        // higher quality); otherwise on-device first with Claude as the long-meeting
+        // fallback. Either way, the second engine covers the first one's failure.
+        let order: [() async -> SummaryOutcome?] =
+            AppSettings.preferClaudeSummaries && ClaudeCLI.isInstalled
+            ? [claude, apple]
+            : [apple, claude]
+        for engine in order {
+            if let outcome = await engine() { return outcome }
+        }
+
+        if let claudeError {
+            return .failure("Summary failed via Claude: \(claudeError)")
         }
         let reason = AppleSummarizer.unavailableReason ?? "Apple Intelligence is unavailable"
         return .failure("\(reason), and Claude Code isn't installed — transcript saved, summary skipped. Fix either one and press Regenerate.")

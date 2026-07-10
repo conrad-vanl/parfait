@@ -89,8 +89,14 @@ final class RecordingSession: ObservableObject {
     /// state and persists to live.json at most every ~1.5 s (throttled so the MCP
     /// process sees a fresh file without thrashing the disk).
     private func applyLive(_ segments: [TranscriptSegment], _ volatile: String) {
-        liveSegments = segments
         volatileText = volatile
+        // The finalized transcript only ever grows, so a count change is a cheap,
+        // exact "did it actually change?" test. Interim (volatile) updates arrive
+        // several times a second and leave the finalized list untouched — skipping
+        // the republish + full re-render + disk write on those is what keeps a
+        // multi-hour meeting from getting steadily heavier as the transcript grows.
+        guard segments.count != liveSegments.count else { return }
+        liveSegments = segments
         let now = Date()
         if now.timeIntervalSince(lastLivePersist) >= 1.5 {
             lastLivePersist = now

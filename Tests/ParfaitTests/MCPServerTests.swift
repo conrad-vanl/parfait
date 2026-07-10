@@ -297,6 +297,28 @@ final class MCPServerTests: XCTestCase {
             "No meeting is being recorded right now.")
     }
 
+    func testLiveTranscriptWindowsToRecentByDefault() throws {
+        _ = try startRecordingMeeting(title: "Long call", live: [
+            TranscriptSegment(speakerID: LiveTranscriber.youSpeakerID, start: 0, end: 0, text: "Ancient history."),
+            TranscriptSegment(speakerID: LiveTranscriber.othersSpeakerID, start: 600, end: 600, text: "Recent point."),
+        ])
+        let text = MCPServer.liveTranscriptText(archive: archive)
+        XCTAssertTrue(text.contains("Recent point."))
+        XCTAssertFalse(text.contains("Ancient history."))
+        XCTAssertTrue(text.contains("last \(MCPServer.liveDefaultWindowMinutes) minutes"))
+        XCTAssertTrue(text.contains("1-2 sentences")) // brevity steering present
+    }
+
+    func testLiveTranscriptMinutesZeroReturnsWholeMeeting() throws {
+        _ = try startRecordingMeeting(title: "Long call", live: [
+            TranscriptSegment(speakerID: LiveTranscriber.youSpeakerID, start: 0, end: 0, text: "Ancient history."),
+            TranscriptSegment(speakerID: LiveTranscriber.othersSpeakerID, start: 600, end: 600, text: "Recent point."),
+        ])
+        let text = MCPServer.liveTranscriptText(archive: archive, minutes: 0)
+        XCTAssertTrue(text.contains("Ancient history."))
+        XCTAssertTrue(text.contains("Recent point."))
+    }
+
     // MARK: - update_summary / regenerate_summary
 
     func testUpdateSummaryWritesNotes() throws {

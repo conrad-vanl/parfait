@@ -24,6 +24,7 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.autoRecord) private var autoRecord = false
     @AppStorage(SettingsKey.autoStopRecording) private var autoStopRecording = true
     @AppStorage(SettingsKey.identifySpeakers) private var identifySpeakers = true
+    @AppStorage(SettingsKey.echoCancellation) private var echoCancellation = true
     @AppStorage(SettingsKey.useCalendar) private var useCalendar = true
     @AppStorage(SettingsKey.defaultTemplate) private var defaultTemplate = "Meeting Notes"
     @AppStorage(SettingsKey.systemAudioConfirmed) private var systemAudioConfirmed = false
@@ -78,6 +79,10 @@ private struct GeneralSettings: View {
             Section("Understanding") {
                 Toggle("Identify individual speakers", isOn: $identifySpeakers)
                 Text("Separates different voices on the call using a small on-device model (~22 MB, downloaded once).")
+                    .font(.parfait(11))
+                    .foregroundStyle(.secondary)
+                Toggle("Cancel echo from your speakers", isOn: $echoCancellation)
+                Text("Uses Apple's voice processing so the other side of the call — played from your speakers — isn't picked up by your mic and mislabeled as you. Turn off if your recorded mic sounds wrong.")
                     .font(.parfait(11))
                     .foregroundStyle(.secondary)
                 Toggle("Match calendar events", isOn: $useCalendar)
@@ -182,10 +187,11 @@ private struct IntelligenceSettings: View {
     @State private var claudeLoggedIn = false
     @State private var ghAvailable = false
     @State private var claudeCodeAvailable = false
+    @AppStorage(SettingsKey.preferClaudeSummaries) private var preferClaudeSummaries = true
 
     var body: some View {
         Form {
-            Section("On-device (preferred)") {
+            Section("On-device") {
                 statusRow(
                     ok: AppleSummarizer.isAvailable,
                     title: "Apple Intelligence",
@@ -220,6 +226,12 @@ private struct IntelligenceSettings: View {
                             .disabled(!claudeCodeAvailable)
                     }
                 }
+
+                Toggle("Always use Claude for summaries", isOn: $preferClaudeSummaries)
+                    .disabled(!(claudeInstalled && claudeLoggedIn))
+                Text("Claude writes higher-quality notes, but runs on your own plan and is a little slower. Off: Apple Intelligence summarizes on-device, and Claude steps in only when a meeting is too long to fit.")
+                    .font(.parfait(11))
+                    .foregroundStyle(.secondary)
             }
 
             Section("Connect Claude to your meetings") {

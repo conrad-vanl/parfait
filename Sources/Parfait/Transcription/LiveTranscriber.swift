@@ -198,9 +198,14 @@ final class LiveTranscriber: @unchecked Sendable {
         if result.isFinal {
             volatile[speakerID] = nil
             if !text.isEmpty {
-                finalized.append(TranscriptSegment(
-                    speakerID: speakerID, start: elapsed, end: elapsed, text: text))
-                finalized.sort { $0.start < $1.start }
+                // Insert in time order rather than re-sorting the whole (growing)
+                // transcript on every final result. New segments are almost always
+                // the latest, so the reverse scan is O(1) amortized vs. O(n log n).
+                let seg = TranscriptSegment(
+                    speakerID: speakerID, start: elapsed, end: elapsed, text: text)
+                var idx = finalized.count
+                while idx > 0, finalized[idx - 1].start > seg.start { idx -= 1 }
+                finalized.insert(seg, at: idx)
             }
         } else {
             volatile[speakerID] = text.isEmpty ? nil : text

@@ -55,6 +55,7 @@ struct NotesTab: View {
                     MarkdownText(markdown: summary)
                         .frame(maxWidth: 660, alignment: .leading)
                         .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -184,6 +185,7 @@ struct TranscriptTab: View {
             }
             .frame(maxWidth: 660, alignment: .leading)
             .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -322,6 +324,7 @@ struct LiveTranscriptView: View {
                         }
                         .frame(maxWidth: 660, alignment: .leading)
                         .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .onChange(of: session.liveSegments.count) { proxy.scrollTo("live-bottom", anchor: .bottom) }
                     .onChange(of: session.volatileText) { proxy.scrollTo("live-bottom", anchor: .bottom) }

@@ -251,4 +251,70 @@ final class SpeakerLabelerTests: XCTestCase {
         XCTAssertEqual(segments[0].speakerID, "s1")
         XCTAssertEqual(speakers.map(\.id), ["s1"])
     }
+
+    // MARK: - Cleanup (phantom speakers + echo dedup)
+
+    func testMergesPhantomSystemSpeaker() {
+        // FluidAudio fragments one remote voice: a substantial turn plus a 0.2s sliver.
+        let system = TranscriptionOutput(
+            words: [
+                word("we", 0.0, 0.5), word("should", 0.6, 1.1), word("ship", 1.2, 1.7),
+                word("it", 1.8, 2.2), word("today", 2.3, 2.9),
+                word("blip", 8.0, 8.2),
+            ],
+            segments: []
+        )
+        let turns = [turn("S1", 0, 3), turn("S2", 7.9, 8.3)]
+        let (_, speakers) = SpeakerLabeler.label(
+            mic: nil, system: system, systemTurns: turns, myName: "Me")
+        XCTAssertEqual(speakers.count, 1, "the 0.2s sliver should fold into the dominant speaker")
+    }
+
+    func testKeepsTwoRealSystemSpeakers() {
+        // Both speakers hold a real share, so neither is merged away.
+        let system = TranscriptionOutput(
+            words: [
+                word("alpha", 0.0, 1.0), word("alpha", 1.1, 2.0),
+                word("beta", 5.0, 6.0), word("beta", 6.1, 7.0),
+            ],
+            segments: []
+        )
+        let turns = [turn("S1", 0, 3), turn("S2", 4, 8)]
+        let (_, speakers) = SpeakerLabeler.label(
+            mic: nil, system: system, systemTurns: turns, myName: "Me")
+        XCTAssertEqual(speakers.count, 2)
+    }
+
+    func testDropsEchoedMicSegment() {
+        // The far end says a full sentence; the mic picks up the same words off the
+        // speakers (echo), plus one genuine local line.
+        let phrase = [
+            word("let's", 5.0, 5.3), word("lock", 5.3, 5.6), word("the", 5.6, 5.8),
+            word("launch", 5.8, 6.1), word("date", 6.1, 6.4),
+        ]
+        let system = TranscriptionOutput(words: phrase, segments: [])
+        let turns = [turn("S1", 5.0, 6.4)]
+        let mic = TranscriptionOutput(
+            words: [],
+            segments: [
+                word("let's lock the launch date", 5.0, 6.4),   // echo of the far end
+                word("sounds good to me here", 10.0, 11.0),      // genuine local line
+            ]
+        )
+        let (segments, _) = SpeakerLabeler.label(
+            mic: mic, system: system, systemTurns: turns, myName: "Me")
+        let meTexts = segments.filter { $0.speakerID == "me" }.map(\.text)
+        XCTAssertFalse(meTexts.contains { $0.contains("launch date") }, "echoed mic line dropped")
+        XCTAssertTrue(meTexts.contains { $0.contains("sounds good") }, "genuine mic line kept")
+    }
+
+    func testKeepsShortMicBackchannel() {
+        // A brief affirmation that happens to echo shouldn't be nuked.
+        let system = TranscriptionOutput(words: [word("yeah", 3.0, 3.4)], segments: [])
+        let turns = [turn("S1", 3.0, 3.4)]
+        let mic = TranscriptionOutput(words: [], segments: [word("yeah", 3.0, 3.4)])
+        let (segments, _) = SpeakerLabeler.label(
+            mic: mic, system: system, systemTurns: turns, myName: "Me")
+        XCTAssertTrue(segments.contains { $0.speakerID == "me" && $0.text == "yeah" })
+    }
 }
