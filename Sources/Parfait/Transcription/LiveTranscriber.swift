@@ -17,6 +17,11 @@ final class LiveTranscriber: @unchecked Sendable {
     static let youSpeakerID = "me"
     static let othersSpeakerID = "them"
 
+    /// How far apart, in seconds, a mic echo and its clean system copy may land.
+    /// The two channels finalize the same utterance independently, so their
+    /// point-in-time stamps drift; wider than the batch tolerance to absorb that.
+    static let liveEchoWindow: TimeInterval = 4
+
     /// Synthetic speakers used to format the live transcript.
     static let speakers = [
         Speaker(id: youSpeakerID, name: "You", isMe: true),
@@ -206,6 +211,13 @@ final class LiveTranscriber: @unchecked Sendable {
                 var idx = finalized.count
                 while idx > 0, finalized[idx - 1].start > seg.start { idx -= 1 }
                 finalized.insert(seg, at: idx)
+                // On speakers (no headphones) the far end bleeds into the mic and
+                // gets transcribed a second time as "You"; the system tap holds the
+                // clean copy. Drop the echo so the live transcript and the MCP tool
+                // don't attribute the other person to us. Bidirectional and bounded
+                // to the window around the new segment, so cost stays O(k).
+                Self.removeEchoedMicSegments(
+                    around: seg.start, in: &finalized, window: Self.liveEchoWindow)
             }
         } else {
             volatile[speakerID] = text.isEmpty ? nil : text
@@ -215,6 +227,46 @@ final class LiveTranscriber: @unchecked Sendable {
         let callback = onUpdate
         lock.unlock()
         callback?(segments, vol)
+    }
+
+    // MARK: - Echo dedup
+
+    /// Removes mic ("You") echoes from the neighborhood of a just-inserted segment.
+    /// Live segments are point-in-time, so this matches on a time window plus word
+    /// coverage rather than the batch path's interval overlap. It runs on every
+    /// final segment (either channel), which makes it bidirectional: a "You" echo
+    /// is dropped whether the clean system copy arrives before or after it. Only the
+    /// time-window tail slice is scanned, so it stays O(k), not O(n), per update.
+    ///
+    /// Short backchannels (< 4 tokens, e.g. "yeah", "right") are left alone so a
+    /// genuine local affirmation that happens to echo isn't nuked.
+    ///
+    /// The word-coverage bar is higher than the batch path's (0.75 vs 0.6): live
+    /// segments are point-in-time, so this can only match on a time window, not the
+    /// batch path's interval overlap. A real echo is a near-verbatim re-transcription
+    /// (coverage ~1.0), so the stricter bar still catches it while sparing a genuine
+    /// local line that merely shares some vocabulary with a nearby far-end line.
+    static func removeEchoedMicSegments(
+        around anchor: TimeInterval, in segments: inout [TranscriptSegment], window: TimeInterval
+    ) {
+        let lo = anchor - window
+        let hi = anchor + window
+        // `segments` is time-ordered, so the window is a contiguous slice ending at
+        // the tail. Walk back only until we fall out of it.
+        var start = segments.count
+        while start > 0, segments[start - 1].start >= lo { start -= 1 }
+        let others = segments[start...].filter { $0.speakerID == othersSpeakerID && $0.start <= hi }
+        guard !others.isEmpty else { return }
+        var i = segments.count - 1
+        while i >= start {
+            let seg = segments[i]
+            if seg.speakerID == youSpeakerID, seg.start <= hi,
+               TranscriptText.wordTokens(seg.text).count >= 4,
+               others.contains(where: { TranscriptText.covers(seg.text, by: $0.text, atLeast: 0.75) }) {
+                segments.remove(at: i)
+            }
+            i -= 1
+        }
     }
 
     // MARK: - Channel

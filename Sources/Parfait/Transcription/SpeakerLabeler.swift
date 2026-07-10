@@ -157,9 +157,9 @@ enum SpeakerLabeler {
         let others = segments.filter { $0.speakerID != "me" }
         guard !others.isEmpty else { return segments }
         return segments.filter { seg in
-            guard seg.speakerID == "me", wordTokens(seg.text).count >= 4 else { return true }
+            guard seg.speakerID == "me", TranscriptText.wordTokens(seg.text).count >= 4 else { return true }
             let isEcho = others.contains { sys in
-                overlaps(seg, sys, tolerance: 2) && covers(seg.text, by: sys.text, atLeast: 0.6)
+                overlaps(seg, sys, tolerance: 2) && TranscriptText.covers(seg.text, by: sys.text, atLeast: 0.6)
             }
             return !isEcho
         }
@@ -169,20 +169,5 @@ enum SpeakerLabeler {
         _ a: TranscriptSegment, _ b: TranscriptSegment, tolerance: TimeInterval
     ) -> Bool {
         a.start - tolerance < b.end && b.start - tolerance < a.end
-    }
-
-    /// True when at least `threshold` of `text`'s words also appear in `other`.
-    private static func covers(_ text: String, by other: String, atLeast threshold: Double) -> Bool {
-        let words = wordTokens(text)
-        guard !words.isEmpty else { return false }
-        let vocab = Set(wordTokens(other))
-        let hits = words.filter { vocab.contains($0) }.count
-        return Double(hits) / Double(words.count) >= threshold
-    }
-
-    private static func wordTokens(_ s: String) -> [String] {
-        s.lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
     }
 }
