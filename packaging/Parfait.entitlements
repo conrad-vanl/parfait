@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened Runtime resource-access entitlements for Parfait.
+
+  Parfait is NOT sandboxed; it runs under the Hardened Runtime (codesign -o runtime),
+  which notarization requires. Under Hardened Runtime these entitlements re-enable
+  access to protected resources the app legitimately uses. TCC still gates the actual
+  user grant via the NS*UsageDescription strings in Info.plist.
+
+  Only com.apple.security.* keys appear here — those are honored for local/ad-hoc
+  signing with no provisioning profile. (com.apple.developer.* restricted entitlements
+  would make launchd refuse to spawn an ad-hoc build, so we deliberately avoid them.)
+
+  Intentionally absent: com.apple.security.cs.disable-library-validation / allow-jit /
+  allow-unsigned-executable-memory. Everything Parfait loads is either an Apple-signed
+  system framework or first-party Swift compiled into our single binary, so library
+  validation is satisfied. Do not add these unless something empirically fails.
+-->
+<plist version="1.0">
+<dict>
+	<!-- Microphone + the Core Audio process tap that captures system/output audio. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<!-- EventKit: match recordings to calendar events for titles/attendees. -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
+</dict>
+</plist>
