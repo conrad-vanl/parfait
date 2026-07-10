@@ -66,24 +66,18 @@ enum ClaudeDesktopPrompt {
     static func library(question: String) -> String {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         return """
-        Answer using my Parfait meetings. Use the "parfait" connector (list_meetings, \
-        search_meetings, get_meeting) to find and read the relevant ones, and name the meetings \
-        and dates you drew from. If nothing matches, say so plainly.
+        Answer using my Parfait meetings:
 
         \(q.isEmpty ? defaultLibraryQuestion : q)
         """
     }
 
-    /// For the "Ask Claude live" button during a recording. Steers Claude to the
-    /// live-transcript tool (the meeting isn't saved yet, so there's no id to pass).
+    /// For the "Ask Claude live" button during a recording. Claude has the live
+    /// transcript tool available and uses it on its own.
     static func live(question: String) -> String {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        return """
-        I'm in a Parfait meeting happening right now — use the "parfait" connector's \
-        get_live_transcript tool to see what's been said so far.
-
-        \(q.isEmpty ? "What's being discussed, and is there anything I should add or ask?" : q)
-        """
+        let ask = q.isEmpty ? "What's being discussed, and is there anything I should add or ask?" : q
+        return "I'm in a Parfait meeting happening right now — \(ask)"
     }
 }
 

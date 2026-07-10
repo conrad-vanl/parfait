@@ -64,18 +64,24 @@ final class ClaudeDesktopTests: XCTestCase {
         XCTAssertTrue(prompt.contains("overview"))
     }
 
-    func testLibraryPromptNamesConnectorAndTools() {
+    func testLibraryPromptCarriesQuestion() {
         let prompt = ClaudeDesktopPrompt.library(question: "When did I last talk about hiring?")
-        XCTAssertTrue(prompt.contains("parfait"))
-        XCTAssertTrue(prompt.contains("list_meetings"))
-        XCTAssertTrue(prompt.contains("search_meetings"))
-        XCTAssertTrue(prompt.contains("get_meeting"))
+        XCTAssertTrue(prompt.contains("Parfait meetings"))
         XCTAssertTrue(prompt.contains("When did I last talk about hiring?"))
     }
 
     func testLibraryPromptFallsBackOnEmptyQuestion() {
         let prompt = ClaudeDesktopPrompt.library(question: "")
         XCTAssertTrue(prompt.contains("talking about"))
+    }
+
+    func testLivePromptDefaultsAndCarriesQuestion() {
+        XCTAssertEqual(
+            ClaudeDesktopPrompt.live(question: ""),
+            "I'm in a Parfait meeting happening right now — What's being discussed, and is there anything I should add or ask?")
+        XCTAssertEqual(
+            ClaudeDesktopPrompt.live(question: "Summarize the last 5 minutes"),
+            "I'm in a Parfait meeting happening right now — Summarize the last 5 minutes")
     }
 
     // MARK: - ClaudeCode (claude://code/new) deep links
