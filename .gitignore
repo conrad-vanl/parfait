@@ -5,3 +5,7 @@ dist/
 tasks/
 .DS_Store
 workers/notes-proxy/node_modules/
+
+# Cloudflare Wrangler local state
+.wrangler/
+site/node_modules/
