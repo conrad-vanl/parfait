@@ -13,7 +13,6 @@ enum SettingsKey {
     static let didCompleteOnboarding = "didCompleteOnboarding" // first-run walkthrough finished
     static let systemAudioConfirmed = "systemAudioConfirmed"   // tap has captured real (non-silent) audio at least once
     static let preferClaudeSummaries = "preferClaudeSummaries" // when Claude is available, use it for summaries first (vs. Apple-first)
-    static let echoCancellation = "echoCancellation"           // voice-processing AEC on the mic (removes far-end speaker bleed)
 }
 
 enum AppSettings {
@@ -31,7 +30,6 @@ enum AppSettings {
             SettingsKey.didCompleteOnboarding: false,
             SettingsKey.systemAudioConfirmed: false,
             SettingsKey.preferClaudeSummaries: true,
-            SettingsKey.echoCancellation: true,
         ])
     }
 
@@ -58,5 +56,4 @@ enum AppSettings {
     static var systemAudioConfirmed: Bool { defaults.bool(forKey: SettingsKey.systemAudioConfirmed) }
     static func markSystemAudioConfirmed() { defaults.set(true, forKey: SettingsKey.systemAudioConfirmed) }
     static var preferClaudeSummaries: Bool { defaults.bool(forKey: SettingsKey.preferClaudeSummaries) }
-    static var echoCancellation: Bool { defaults.bool(forKey: SettingsKey.echoCancellation) }
 }

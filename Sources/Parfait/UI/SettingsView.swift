@@ -24,7 +24,6 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.autoRecord) private var autoRecord = false
     @AppStorage(SettingsKey.autoStopRecording) private var autoStopRecording = true
     @AppStorage(SettingsKey.identifySpeakers) private var identifySpeakers = true
-    @AppStorage(SettingsKey.echoCancellation) private var echoCancellation = true
     @AppStorage(SettingsKey.useCalendar) private var useCalendar = true
     @AppStorage(SettingsKey.defaultTemplate) private var defaultTemplate = "Meeting Notes"
     @AppStorage(SettingsKey.systemAudioConfirmed) private var systemAudioConfirmed = false
@@ -79,10 +78,6 @@ private struct GeneralSettings: View {
             Section("Understanding") {
                 Toggle("Identify individual speakers", isOn: $identifySpeakers)
                 Text("Separates different voices on the call using a small on-device model (~22 MB, downloaded once).")
-                    .font(.parfait(11))
-                    .foregroundStyle(.secondary)
-                Toggle("Cancel echo from your speakers", isOn: $echoCancellation)
-                Text("Uses Apple's voice processing so the other side of the call — played from your speakers — isn't picked up by your mic and mislabeled as you. Turn off if your recorded mic sounds wrong.")
                     .font(.parfait(11))
                     .foregroundStyle(.secondary)
                 Toggle("Match calendar events", isOn: $useCalendar)

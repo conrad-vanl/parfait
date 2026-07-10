@@ -51,7 +51,6 @@ final class MicRecorder: @unchecked Sendable {
         guard engine == nil else { throw MicRecorderError.alreadyRecording }
 
         let engine = AVAudioEngine()
-        applyVoiceProcessing(engine) // best-effort AEC before we read the input format
         let inputFormat = engine.inputNode.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw MicRecorderError.inputUnavailable
@@ -75,50 +74,20 @@ final class MicRecorder: @unchecked Sendable {
         self.file = file
 
         do {
-            try installAndStartLocked(engine)
+            try installTapLocked(on: engine)
+            configObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange,
+                object: engine,
+                queue: nil
+            ) { [weak self] _ in
+                self?.restartQueue.async { self?.restartAfterConfigurationChange() }
+            }
+            engine.prepare()
+            try engine.start()
         } catch {
-            // Voice processing can be finicky on some devices/outputs; if it broke
-            // engine start, retry once without it rather than fail the recording.
-            guard engine.inputNode.isVoiceProcessingEnabled else {
-                teardownLocked()
-                throw error
-            }
-            try? engine.inputNode.setVoiceProcessingEnabled(false)
-            engine.inputNode.removeTap(onBus: 0)
-            do {
-                try installAndStartLocked(engine)
-            } catch {
-                teardownLocked()
-                throw error
-            }
+            teardownLocked()
+            throw error
         }
-
-        // Watch for device switches only once we're actually running (this also
-        // avoids adding a second observer if the AEC-fallback retry above ran).
-        configObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange,
-            object: engine,
-            queue: nil
-        ) { [weak self] _ in
-            self?.restartQueue.async { self?.restartAfterConfigurationChange() }
-        }
-    }
-
-    private func installAndStartLocked(_ engine: AVAudioEngine) throws {
-        try installTapLocked(on: engine)
-        engine.prepare()
-        try engine.start()
-    }
-
-    /// Apple's voice-processing I/O cancels the system-output echo (plus AGC and
-    /// noise suppression) so the mic carries only the local speaker — the fix for the
-    /// far end bleeding into the "You" channel when the user is on speakers.
-    /// Best-effort and gated by a setting; if the OS refuses it we record without it,
-    /// and the batch echo-dedup still cleans the transcript.
-    private func applyVoiceProcessing(_ engine: AVAudioEngine) {
-        let wanted = AppSettings.echoCancellation
-        guard engine.inputNode.isVoiceProcessingEnabled != wanted else { return }
-        try? engine.inputNode.setVoiceProcessingEnabled(wanted)
     }
 
     func stop() {
@@ -159,7 +128,6 @@ final class MicRecorder: @unchecked Sendable {
         defer { lock.unlock() }
         guard let engine, file != nil else { return }
         engine.inputNode.removeTap(onBus: 0)
-        applyVoiceProcessing(engine)
         do {
             try installTapLocked(on: engine)
             engine.prepare()
