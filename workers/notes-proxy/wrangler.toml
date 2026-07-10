@@ -18,4 +18,4 @@ routes = [
 # `wrangler kv namespace create BLOCKLIST` — see docs/DEPLOY.md.
 [[kv_namespaces]]
 binding = "BLOCKLIST"
-id = "<PLACEHOLDER_KV_NAMESPACE_ID>"
+id = "1ebe022ffddd4fc9bd3174cf7e6c95e1"
