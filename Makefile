@@ -23,7 +23,7 @@ else
 RUNTIME_ARGS :=
 endif
 
-.PHONY: build test app run install icon og clean
+.PHONY: build test app run install relaunch icon og clean
 
 build:
 	swift build -c release
@@ -55,6 +55,13 @@ install: app
 	rm -rf "/Applications/$(APP_NAME).app"
 	cp -R "$(APP)" "/Applications/$(APP_NAME).app"
 	@echo "Installed to /Applications/$(APP_NAME).app"
+
+# Kill running instance, wipe old bundles, rebuild, install to /Applications, and launch.
+relaunch:
+	-pkill -x $(APP_NAME)
+	rm -rf "/Applications/$(APP_NAME).app" "$(APP)"
+	$(MAKE) install
+	open "/Applications/$(APP_NAME).app"
 
 # Regenerate every icon artifact the app actually ships from the drawing code:
 # the .icns bundled by `make app` and the @1x/@2x menu-bar template glyphs
