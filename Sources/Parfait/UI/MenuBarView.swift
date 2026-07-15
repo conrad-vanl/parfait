@@ -16,6 +16,7 @@ struct MenuBarView: View {
                 detectionBanner(detected)
             } else {
                 Button {
+                    dismissMenu()
                     Task { await app.startRecording() }
                 } label: {
                     Label("Start recording", systemImage: "record.circle")
@@ -51,6 +52,7 @@ struct MenuBarView: View {
         }
         .padding(14)
         .frame(width: 320)
+        .background(MenuBarExtraWindowHook())
     }
 
     private var header: some View {
@@ -60,6 +62,7 @@ struct MenuBarView: View {
                 .font(.parfait(16, .bold))
             Spacer()
             Button {
+                dismissMenu()
                 openSettings()
                 NSApp.activate()
             } label: {
@@ -76,6 +79,7 @@ struct MenuBarView: View {
                 .font(.parfait(12, .semibold))
             HStack {
                 Button {
+                    dismissMenu()
                     Task { await app.acceptDetection() }
                 } label: {
                     Text("Record meeting").font(.parfait(12, .semibold))
@@ -123,9 +127,39 @@ struct MenuBarView: View {
         }
     }
 
+    private func dismissMenu() {
+        MenuBarExtraPanel.dismiss()
+    }
+
     private func openMain() {
+        dismissMenu()
         openWindow(id: "main")
         NSApp.activate()
+    }
+}
+
+/// SwiftUI's MenuBarExtra(.window) has no dismiss API — capture the panel and order it out.
+private enum MenuBarExtraPanel {
+    private static weak var window: NSWindow?
+
+    static func dismiss() {
+        window?.orderOut(nil)
+    }
+
+    static func bind(_ window: NSWindow?) {
+        Self.window = window
+    }
+}
+
+private struct MenuBarExtraWindowHook: NSViewRepresentable {
+    func makeNSView(context: Context) -> HookView { HookView() }
+    func updateNSView(_ nsView: HookView, context: Context) {}
+
+    final class HookView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            MenuBarExtraPanel.bind(window)
+        }
     }
 }
 
