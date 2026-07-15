@@ -31,6 +31,7 @@ private struct GeneralSettings: View {
     @State private var micStatus = MicRecorder.permissionGranted
     @State private var calendarStatus = CalendarMatcher.isAuthorized
     @State private var launchAtLogin = LaunchAtLogin.isOn
+    @State private var systemAudioStatus = SystemAudioPermission.status()
 
     var body: some View {
         Form {
@@ -107,21 +108,31 @@ private struct GeneralSettings: View {
                     Task { micStatus = await MicRecorder.requestPermission() }
                 }
                 HStack(alignment: .firstTextBaseline) {
-                    StatusDot(ok: systemAudioConfirmed ? true : nil)
+                    StatusDot(ok: systemAudioOK)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("System Audio Recording").font(.parfait(12, .medium))
-                        Text(systemAudioConfirmed
-                             ? "Records the other participants. Confirmed capturing audio in a previous recording."
-                             : "Records the other participants. macOS asks the first time a recording starts; manage it under Privacy & Security → Screen & System Audio Recording.")
+                        Text(systemAudioSettingsDetail)
                             .font(.parfait(11))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Open Settings") {
-                        NSWorkspace.shared.open(URL(
-                            string: "x-apple.systempreferences:com.apple.preference.security")!)
+                    switch systemAudioStatus {
+                    case .unknown:
+                        Button("Grant…") {
+                            Task {
+                                await SystemAudioPermission.request()
+                                systemAudioStatus = SystemAudioPermission.status()
+                            }
+                        }
+                        .controlSize(.small)
+                    case .denied:
+                        Button("Open Settings") {
+                            NSWorkspace.shared.open(SystemAudioPermission.privacySettingsURL)
+                        }
+                        .controlSize(.small)
+                    case .authorized:
+                        EmptyView()
                     }
-                    .controlSize(.small)
                 }
                 HStack(alignment: .firstTextBaseline) {
                     StatusDot(ok: app.notificationAuthStatus == .authorized
@@ -152,6 +163,30 @@ private struct GeneralSettings: View {
             micStatus = MicRecorder.permissionGranted
             calendarStatus = CalendarMatcher.isAuthorized
             launchAtLogin = LaunchAtLogin.isOn
+            systemAudioStatus = SystemAudioPermission.status()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            systemAudioStatus = SystemAudioPermission.status()
+        }
+    }
+
+    private var systemAudioOK: Bool? {
+        if systemAudioConfirmed || systemAudioStatus == .authorized { return true }
+        if systemAudioStatus == .denied { return false }
+        return nil
+    }
+
+    private var systemAudioSettingsDetail: String {
+        if systemAudioConfirmed {
+            return "Records the other participants. Confirmed capturing audio in a previous recording."
+        }
+        switch systemAudioStatus {
+        case .authorized:
+            return "Allowed — records the other participants on calls."
+        case .denied:
+            return "Denied — enable Parfait under System Audio Recording Only in Settings."
+        case .unknown:
+            return "Records the other participants. Click Grant — macOS will ask to allow system audio recording."
         }
     }
 

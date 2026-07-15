@@ -7,6 +7,7 @@ struct OnboardingView: View {
     @Environment(\.colorScheme) private var scheme
     @AppStorage(SettingsKey.didCompleteOnboarding) private var didCompleteOnboarding = false
     @AppStorage(SettingsKey.systemAudioConfirmed) private var systemAudioConfirmed = false
+    @State private var systemAudioStatus = SystemAudioPermission.status()
 
     @State private var micStatus = MicRecorder.permissionGranted
     @State private var calendarStatus = CalendarMatcher.isAuthorized
@@ -52,6 +53,7 @@ struct OnboardingView: View {
         .frame(width: 520)
         .background(Theme.surface(scheme))
         .onAppear {
+            systemAudioStatus = SystemAudioPermission.status()
             micStatus = MicRecorder.permissionGranted
             calendarStatus = CalendarMatcher.isAuthorized
             claudeInstalled = ClaudeCLI.isInstalled
@@ -62,6 +64,9 @@ struct OnboardingView: View {
                 let gh = GitHubGist.isAvailable // shells out; keep off-main here
                 await MainActor.run { claudeLoggedIn = loggedIn; ghAvailable = gh }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            systemAudioStatus = SystemAudioPermission.status()
         }
     }
 
@@ -85,20 +90,48 @@ struct OnboardingView: View {
     }
 
     private var systemAudioRow: some View {
-        // No public preflight/request API exists for kTCCServiceAudioCapture (verified against
-        // the macOS 26 SDK — no CGPreflightScreenCaptureAccess analog, and tap start/IO succeed
-        // silently whether or not it's granted). So we go green only once a real recording has
-        // actually captured non-silent system audio (systemAudioConfirmed, set from SystemAudioTap).
         OnboardingStepRow(
             icon: "waveform", title: "System Audio Recording", required: true,
-            detail: systemAudioConfirmed
-                ? "Confirmed — captured system audio in a previous recording."
-                : "Records the other participants. macOS will ask the first time you record; you can also enable it under Privacy & Security → Screen & System Audio Recording.",
-            ok: systemAudioConfirmed ? true : nil
+            detail: systemAudioDetail,
+            ok: systemAudioOK
         ) {
-            Button("Open Settings") {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security")!)
-            }.controlSize(.small)
+            switch systemAudioStatus {
+            case .unknown:
+                Button("Grant…") {
+                    Task {
+                        await SystemAudioPermission.request()
+                        systemAudioStatus = SystemAudioPermission.status()
+                    }
+                }
+                .controlSize(.small)
+            case .denied:
+                Button("Open Settings") {
+                    NSWorkspace.shared.open(SystemAudioPermission.privacySettingsURL)
+                }
+                .controlSize(.small)
+            case .authorized:
+                EmptyView()
+            }
+        }
+    }
+
+    private var systemAudioOK: Bool? {
+        if systemAudioConfirmed || systemAudioStatus == .authorized { return true }
+        if systemAudioStatus == .denied { return false }
+        return nil
+    }
+
+    private var systemAudioDetail: String {
+        if systemAudioConfirmed {
+            return "Confirmed — captured system audio in a previous recording."
+        }
+        switch systemAudioStatus {
+        case .authorized:
+            return "Allowed — records the other participants on calls."
+        case .denied:
+            return "Denied — enable Parfait under System Audio Recording Only in Settings."
+        case .unknown:
+            return "Records the other participants. Click Grant — macOS will ask to allow system audio recording."
         }
     }
 
