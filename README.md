@@ -43,13 +43,19 @@ history, or the meeting happening <em>right now</em> — with nothing uploaded.
   opens Claude on the call in progress. Parfait exposes the running transcript through a
   `get_live_transcript` MCP tool, so Claude can answer "what did I miss?" or "what should I ask
   next?" — no pasting, and it rides over full-screen Zoom.
-- **Chat with one meeting, natively in Claude.** Your own question (or the "Ask about this meeting"
-  screen) opens Claude Desktop with that meeting loaded through Parfait's MCP connector — Claude
-  reads it itself; nothing is copied in.
-- **Chat with *all* your meetings.** "Ask your meetings" points Claude at your whole library the
-  same way. Because Parfait ships an MCP server over your meetings, once it's connected you can skip
-  the app entirely and just ask Claude — Code or Desktop — anytime. Claude can even regenerate a
-  meeting's notes against a different template, or edit them, through the same server.
+- **Claude as your executive assistant.** Parfait ships a Claude plugin with three skills:
+  **dig in** (`/parfait:dig-in` — after a meeting, extract commitments and open questions, match
+  them against your Linear/email/calendar connectors, act on them with your approval, and track
+  them as follow-ups the app displays), **scoop** (`/parfait:scoop` — a pre-meeting brief from
+  past meetings with the same people and their open commitments), and **digest**
+  (`/parfait:digest` — a weekly rollup of decisions and commitments). When notes are ready, the
+  notification's "Dig in with Claude" button drops you straight into the flow.
+- **Chat with one meeting, natively in Claude.** "Open in Claude" on any meeting opens Claude
+  with that meeting loaded through Parfait's MCP server — Claude reads it itself; nothing is
+  copied in. "Ask Claude" in the toolbar points it at your whole library the same way, and once
+  the plugin is installed you can skip the app entirely and just ask Claude — Code or Desktop —
+  anytime. Claude can even regenerate a meeting's notes against a different template, edit them,
+  or publish them, through the same server.
 - **Publish** a beautiful self-contained page (notes + transcript) as a secret gist on your own
   GitHub (`gh`), with a rendered **notes.parfait.to** URL to share — Parfait's own CDN serving
   your gist back rendered, not a raw-file host — or preview/export the HTML locally with no
@@ -69,18 +75,18 @@ Parfait has no backend, no accounts, and no API keys. It composes things your Ma
 | Speaker separation | FluidAudio CoreML diarization (on device) |
 | Summaries, titles | Apple Intelligence FoundationModels (on device) |
 | Long meetings, publishing | **Your own** Claude account via the `claude` CLI |
-| Chat (per-meeting and cross-meeting) | **Your own** Claude Desktop, via a deep link + Parfait's MCP connector |
+| Chat + assistant skills (dig in, scoop, digest) | **Your own** Claude — Desktop or Code — via the Parfait plugin (MCP server + skills) |
 | Publish target | **Your own** GitHub via `gh` (secret gist), served back rendered by **notes.parfait.to** (Parfait's own CDN in front of your gist), or a local browser preview / HTML export |
 
 ## Requirements
 
 - **macOS 26 (Tahoe)** on Apple Silicon
 - **Apple Intelligence enabled** (Settings → Apple Intelligence & Siri) for on-device summaries
-- **Required for chat:** [Claude Desktop](https://claude.ai/download), with the parfait MCP
-  connector added (Settings → Connect Claude) — the Chat and "Ask your meetings" screens open
-  a pre-filled prompt there
-- Optional: [Claude Code](https://claude.com/claude-code) (`claude` CLI, logged in) — unlocks
-  long-meeting summaries, billed to your own plan
+- **Required for chat + assistant skills:** [Claude Desktop](https://claude.ai/download) and the
+  Parfait plugin (one-click install from onboarding or Settings → Intelligence) — the "Open in
+  Claude" and "Dig in with Claude" buttons open a pre-filled prompt there
+- Optional: [Claude Code](https://claude.com/claude-code) (`claude` CLI, logged in) — installs the
+  plugin, and unlocks long-meeting summaries billed to your own plan
 - Optional: [GitHub CLI](https://cli.github.com) (`gh auth login`) — to publish a shareable rendered
   URL as a gist on your own account (without it, you can still preview and export the HTML locally)
 
@@ -101,42 +107,37 @@ Privacy & Security → Screen & System Audio Recording → "System Audio Recordi
 > permissions survive rebuilds. If you have an Apple Development certificate, prefer
 > `make install SIGN_ID="Apple Development: you@example.com (TEAMID)"`.
 
-## Connect Claude to your meeting library
+## Connect Claude: install the Parfait plugin
+
+The easiest path is the **Install plugin** button in onboarding (or Settings → Intelligence).
+It runs, and you can also run it yourself:
 
 ```bash
-claude mcp add parfait -s user -- "/Applications/Parfait.app/Contents/MacOS/Parfait" --mcp
+claude plugin marketplace add conrad-vanl/parfait
+claude plugin install parfait@parfait
 ```
 
-Then from any `claude` session (or Claude Desktop with the same server):
+The plugin registers Parfait's MCP server (via a launcher script the app maintains at
+`~/Library/Application Support/Parfait/bin/parfait-mcp`, so app updates never break it) and adds
+the three skills — `/parfait:dig-in`, `/parfait:scoop`, `/parfait:digest` — to Claude Code and
+Claude Desktop alike. Launch Parfait.app at least once first so the launcher script exists.
+
+Then from any `claude` session or Claude Desktop chat:
 
 > "Search my meetings for when I last discussed hiring, and summarize what was decided."
 
 The MCP server (`Parfait --mcp`) speaks stdio over your on-disk library. Read tools:
-`list_meetings`, `search_meetings`, `get_meeting`, `get_transcript`, and `get_live_transcript`
-(the meeting in progress). Edit tools: `regenerate_summary`, `update_summary`, and the template
+`list_meetings`, `search_meetings`, `get_meeting`, `get_transcript`, `get_live_transcript`
+(the meeting in progress), and `get_followups`. Write tools: `regenerate_summary`,
+`update_summary`, `save_followups`, `update_followup_status`, `publish_meeting`, and the template
 tools (`list_templates`, `get_template`, `create_template`, `update_template`, `rename_template`,
 `delete_template`). Nothing leaves your Mac except what the model reads or writes through them.
 
-### Claude Desktop
+Prefer not to use the plugin? The server also registers the classic way:
 
-Claude Desktop reads MCP servers from a config file, not a CLI command. Open (or create)
-`~/Library/Application Support/Claude/claude_desktop_config.json` and merge this into the
-`mcpServers` object — **don't overwrite the file** if you already have other servers configured:
-
-```json
-{
-  "mcpServers": {
-    "parfait": {
-      "command": "/Applications/Parfait.app/Contents/MacOS/Parfait",
-      "args": ["--mcp"]
-    }
-  }
-}
+```bash
+claude mcp add parfait -s user -- "$HOME/Library/Application Support/Parfait/bin/parfait-mcp"
 ```
-
-Restart Claude Desktop after saving. Settings → "Connect Claude to your meetings" in the app
-has a "Copy JSON" button that fills in your actual install path, and a "Reveal in Finder" button
-that jumps straight to the config file.
 
 ## Templates
 

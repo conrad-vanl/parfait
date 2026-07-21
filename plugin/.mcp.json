@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "parfait": {
+      "command": "${HOME}/Library/Application Support/Parfait/bin/parfait-mcp"
+    }
+  }
+}

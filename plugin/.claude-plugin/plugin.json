@@ -1,0 +1,11 @@
+{
+  "name": "parfait",
+  "description": "Executive-assistant skills for Parfait, the local-first macOS meeting notetaker: dig into a finished meeting and act on it, get a pre-meeting brief, and roll up your week — backed by the Parfait MCP server on your Mac.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Conrad VanLandingham"
+  },
+  "homepage": "https://github.com/conrad-vanl/parfait",
+  "repository": "https://github.com/conrad-vanl/parfait",
+  "license": "MIT"
+}
