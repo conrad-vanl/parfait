@@ -210,6 +210,19 @@ enum ProcessingPipeline {
                 meeting: meeting, summary: finalText, provider: outcome.summaryProvider ?? "apple")
         }
 
+        // 4. Follow-ups, from whatever notes the meeting ended up with. Only when
+        //    the meeting has none yet — a reprocess must never clobber a list the
+        //    user already curated (regenerateSummary doesn't extract at all).
+        if FollowupExtractor.shouldExtract(notes: finalText, existing: archive.followups(for: id)) {
+            onProgress("Extracting follow-ups…")
+            let items = await FollowupExtractor.extract(
+                notes: finalText, transcript: segments, speakers: speakers,
+                provider: outcome.summaryProvider ?? "apple")
+            if !items.isEmpty {
+                try? archive.saveFollowups(items, for: id)
+            }
+        }
+
         onSummary(.done)
         outcome.notice = notices.isEmpty ? nil : notices.joined(separator: " ")
         return outcome

@@ -109,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 struct MenuBarLabel: View {
+    @Environment(\.openWindow) private var openWindow
     let isRecording: Bool
     /// A meeting-ish app grabbed the mic and we're waiting on the user to hit Record.
     /// Swap in an attention glyph so the prompt is visible in the menu bar even if the
@@ -116,6 +117,15 @@ struct MenuBarLabel: View {
     var detecting: Bool = false
 
     var body: some View {
+        glyph
+            // The status-bar label is the one view alive for the app's whole
+            // lifetime, so it donates its openWindow to non-view callers
+            // (the notification tap handler).
+            .onAppear { AppState.shared.openMainWindow = { openWindow(id: "main") } }
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
         if isRecording {
             Image(systemName: "record.circle.fill")
         } else if detecting {

@@ -48,6 +48,28 @@ final class FollowupTests: XCTestCase {
         XCTAssertEqual(archive.followups(for: meeting.id), [])
     }
 
+    func testAllFollowupsNewestFirstOmittingEmptyMeetings() throws {
+        // The fixture meeting is newest (created "now"); add an older one with
+        // followups and another older one without any.
+        try archive.saveFollowups([makeFollowup(title: "Send deck")], for: meeting.id)
+
+        var old = Meeting(title: "Old planning", createdAt: Date().addingTimeInterval(-86400))
+        old.state = .ready
+        try archive.createFolder(for: old.id)
+        try archive.save(old)
+        try archive.saveFollowups([makeFollowup(title: "Chase invoice")], for: old.id)
+
+        var empty = Meeting(title: "Nothing to do", createdAt: Date().addingTimeInterval(-3600))
+        empty.state = .ready
+        try archive.createFolder(for: empty.id)
+        try archive.save(empty)
+
+        let all = archive.allFollowups()
+        XCTAssertEqual(all.map(\.meeting.id), [meeting.id, old.id])
+        XCTAssertEqual(all[0].items.map(\.title), ["Send deck"])
+        XCTAssertEqual(all[1].items.map(\.title), ["Chase invoice"])
+    }
+
     func testSaveOnDeletedMeetingThrows() throws {
         try archive.delete(id: meeting.id)
         XCTAssertThrowsError(try archive.saveFollowups([makeFollowup(title: "x")], for: meeting.id)) {

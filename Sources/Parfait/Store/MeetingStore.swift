@@ -6,6 +6,10 @@ import SwiftUI
 final class MeetingStore: ObservableObject {
     let archive: MeetingArchive
     @Published private(set) var meetings: [Meeting] = []
+    /// Cached open-follow-up total for the sidebar badge. Computing it live in a
+    /// view body would re-scan every followups.json on each render (including
+    /// per-token during summary streaming) — refresh it on mutations instead.
+    @Published private(set) var openFollowupCount = 0
 
     init(archive: MeetingArchive = MeetingArchive()) {
         self.archive = archive
@@ -14,6 +18,15 @@ final class MeetingStore: ObservableObject {
 
     func reload() {
         meetings = archive.allMeetings()
+        refreshFollowupCount()
+    }
+
+    /// Recount open follow-ups from disk. Call after anything that may have
+    /// written a followups.json (in-app edit, pipeline extraction, MCP process
+    /// while the app was inactive).
+    func refreshFollowupCount() {
+        openFollowupCount = archive.allFollowups()
+            .reduce(0) { $0 + $1.items.filter(\.isOpen).count }
     }
 
     func meeting(id: UUID) -> Meeting? {
@@ -57,6 +70,23 @@ final class MeetingStore: ObservableObject {
     func summary(for id: UUID) -> String { archive.summary(for: id) }
 
     func followups(for id: UUID) -> [Followup] { archive.followups(for: id) }
+
+    /// Every meeting's followups, newest meeting first, skipping meetings
+    /// without any. Read fresh from disk — the MCP process writes these files.
+    func allFollowups() -> [(meeting: Meeting, items: [Followup])] {
+        archive.allFollowups()
+    }
+
+    /// Edit one followup in place: read the meeting's list, apply `mutate`,
+    /// bump `updatedAt`, and write the list back.
+    func updateFollowup(meetingID: UUID, itemID: UUID, mutate: (inout Followup) -> Void) {
+        var items = archive.followups(for: meetingID)
+        guard let i = items.firstIndex(where: { $0.id == itemID }) else { return }
+        mutate(&items[i])
+        items[i].updatedAt = Date()
+        try? archive.saveFollowups(items, for: meetingID)
+        refreshFollowupCount()
+    }
 
     func saveSummary(_ markdown: String, for id: UUID) {
         try? archive.saveSummary(markdown, for: id)

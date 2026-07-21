@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Parfait — a local-first macOS meeting notetaker, plugged into Claude.",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "parfait",
       "source": "./plugin",
-      "description": "Turn Parfait meeting notes into action: dig in after a meeting, get the scoop before one, and roll up your week."
+      "description": "Turn Parfait meeting notes into action: work your curated follow-up queue, get the scoop before a meeting, and roll up your week."
     }
   ]
 }

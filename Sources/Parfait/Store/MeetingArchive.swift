@@ -6,7 +6,8 @@ import Foundation
 ///         meeting.json      Meeting
 ///         transcript.json   [TranscriptSegment]
 ///         summary.md        markdown
-///         followups.json    [Followup], written by Claude via MCP
+///         followups.json    [Followup], extracted by the pipeline at summary time;
+///                           edited by the app's Follow-ups tab and by Claude via MCP
 ///         mic.m4a           the user's microphone
 ///         system.m4a        everyone else (process tap)
 ///         screenshots/      opt-in mid-meeting captures; deleted after processing
@@ -205,7 +206,7 @@ final class MeetingArchive: @unchecked Sendable {
         }
     }
 
-    // MARK: - Followups (written by Claude via MCP; the app only reads)
+    // MARK: - Followups (extracted at summary time; edited by the app and by Claude via MCP)
 
     func followups(for id: UUID) -> [Followup] {
         queue.sync {
@@ -225,6 +226,16 @@ final class MeetingArchive: @unchecked Sendable {
             }
             let data = try encoder.encode(items)
             try data.write(to: dir.appendingPathComponent("followups.json"), options: .atomic)
+        }
+    }
+
+    /// Every meeting's follow-ups, newest meeting first (allMeetings order);
+    /// meetings without any follow-ups are omitted. The cross-meeting fold behind
+    /// the Follow-ups tab and the MCP `get_all_followups` tool.
+    func allFollowups() -> [(meeting: Meeting, items: [Followup])] {
+        allMeetings().compactMap { meeting in
+            let items = followups(for: meeting.id)
+            return items.isEmpty ? nil : (meeting: meeting, items: items)
         }
     }
 

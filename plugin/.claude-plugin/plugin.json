@@ -1,7 +1,7 @@
 {
   "name": "parfait",
-  "description": "Executive-assistant skills for Parfait, the local-first macOS meeting notetaker: dig into a finished meeting and act on it, get a pre-meeting brief, and roll up your week — backed by the Parfait MCP server on your Mac.",
-  "version": "0.1.0",
+  "description": "Executive-assistant skills for Parfait, the local-first macOS meeting notetaker: work your curated follow-up queue (Parfait extracts follow-ups when it writes notes; you review them in the app, Claude executes), get a pre-meeting brief, and roll up your week — backed by the Parfait MCP server on your Mac.",
+  "version": "0.2.0",
   "author": {
     "name": "Conrad VanLandingham"
   },

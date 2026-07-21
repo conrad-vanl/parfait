@@ -81,11 +81,11 @@ final class MCPServerTests: XCTestCase {
         let tools = (resp["result"] as! [String: Any])["tools"] as! [[String: Any]]
         let names = tools.map { $0["name"] as! String }.sorted()
         XCTAssertEqual(names, [
-            "create_template", "delete_template", "get_followups", "get_live_transcript",
-            "get_meeting", "get_template", "get_transcript", "list_meetings",
-            "list_templates", "publish_meeting", "regenerate_summary", "rename_template",
-            "save_followups", "search_meetings", "update_followup_status", "update_summary",
-            "update_template",
+            "create_template", "delete_template", "get_all_followups", "get_followups",
+            "get_live_transcript", "get_meeting", "get_template", "get_transcript",
+            "list_meetings", "list_templates", "publish_meeting", "regenerate_summary",
+            "rename_template", "save_followups", "search_meetings", "update_followup",
+            "update_summary", "update_template",
         ])
         for tool in tools {
             XCTAssertNotNil(tool["description"])
@@ -432,15 +432,21 @@ final class MCPServerTests: XCTestCase {
         XCTAssertTrue(text(result).contains("someday"))
     }
 
-    func testUpdateFollowupStatus() throws {
+    /// Saves one follow-up through the tool surface and returns its id.
+    private func seedFollowup(title: String, id requestID: Int) throws -> UUID {
         let followupID = UUID()
         _ = try callTool("save_followups", [
             "meeting_id": meeting.id.uuidString,
-            "items": [["id": followupID.uuidString, "title": "Ship it", "kind": "action"]],
-        ], id: 44)
+            "items": [["id": followupID.uuidString, "title": title, "kind": "action"]],
+        ], id: requestID)
+        return followupID
+    }
+
+    func testUpdateFollowupStatusOnly() throws {
+        let followupID = try seedFollowup(title: "Ship it", id: 44)
         let before = archive.followups(for: meeting.id)[0]
 
-        let result = try callTool("update_followup_status", [
+        let result = try callTool("update_followup", [
             "meeting_id": meeting.id.uuidString,
             "followup_id": followupID.uuidString,
             "status": "done",
@@ -448,7 +454,8 @@ final class MCPServerTests: XCTestCase {
         ], id: 45)
         XCTAssertEqual(result["isError"] as? Bool, false)
         XCTAssertTrue(text(result).contains("Ship it"))
-        XCTAssertTrue(text(result).contains("done"))
+        XCTAssertTrue(text(result).contains("status → done"))
+        XCTAssertTrue(text(result).contains("result_url"))
 
         let after = archive.followups(for: meeting.id)[0]
         XCTAssertEqual(after.status, .done)
@@ -457,13 +464,169 @@ final class MCPServerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(after.updatedAt, before.updatedAt)
     }
 
-    func testUpdateFollowupStatusUnknownIDIsError() throws {
-        let result = try callTool("update_followup_status", [
+    func testUpdateFollowupEditsSuggestedAction() throws {
+        let followupID = try seedFollowup(title: "Ship it", id: 44)
+        let before = archive.followups(for: meeting.id)[0]
+
+        let result = try callTool("update_followup", [
+            "meeting_id": meeting.id.uuidString,
+            "followup_id": followupID.uuidString,
+            "suggested_action": "Open the release PR and tag Priya",
+        ], id: 45)
+        XCTAssertEqual(result["isError"] as? Bool, false)
+        XCTAssertTrue(text(result).contains("suggested_action"))
+
+        let after = archive.followups(for: meeting.id)[0]
+        XCTAssertEqual(after.suggestedAction, "Open the release PR and tag Priya")
+        XCTAssertEqual(after.status, before.status) // untouched fields survive
+        XCTAssertGreaterThanOrEqual(after.updatedAt, before.updatedAt)
+    }
+
+    func testUpdateFollowupNoEditableFieldsIsError() throws {
+        let followupID = try seedFollowup(title: "Ship it", id: 44)
+        let result = try callTool("update_followup", [
+            "meeting_id": meeting.id.uuidString,
+            "followup_id": followupID.uuidString,
+        ], id: 45)
+        XCTAssertEqual(result["isError"] as? Bool, true)
+        XCTAssertTrue(text(result).contains("at least one field"))
+    }
+
+    func testUpdateFollowupEmptyTitleIsError() throws {
+        let followupID = try seedFollowup(title: "Ship it", id: 44)
+        let result = try callTool("update_followup", [
+            "meeting_id": meeting.id.uuidString,
+            "followup_id": followupID.uuidString,
+            "title": "",
+        ], id: 45)
+        XCTAssertEqual(result["isError"] as? Bool, true)
+        XCTAssertEqual(archive.followups(for: meeting.id)[0].title, "Ship it")
+    }
+
+    func testUpdateFollowupUnknownIDIsError() throws {
+        let result = try callTool("update_followup", [
             "meeting_id": meeting.id.uuidString,
             "followup_id": UUID().uuidString,
             "status": "done",
         ], id: 46)
         XCTAssertEqual(result["isError"] as? Bool, true)
+    }
+
+    // MARK: - get_all_followups
+
+    private func makeFollowup(title: String, status: Followup.Status) -> Followup {
+        let now = Date()
+        return Followup(
+            id: UUID(), kind: .action, title: title,
+            owner: nil, sourceQuote: nil, suggestedAction: nil,
+            status: status, resultURL: nil, note: nil,
+            createdAt: now, updatedAt: now)
+    }
+
+    private func seedMeeting(
+        title: String, daysAgo: Double, followups: [Followup]
+    ) throws -> Meeting {
+        var m = Meeting(title: title, createdAt: Date().addingTimeInterval(-daysAgo * 86400))
+        m.state = .ready
+        try archive.createFolder(for: m.id)
+        try archive.save(m)
+        if !followups.isEmpty { try archive.saveFollowups(followups, for: m.id) }
+        return m
+    }
+
+    private func meetingsEnvelope(_ result: [String: Any]) throws -> [[String: Any]] {
+        let json = try JSONSerialization.jsonObject(with: Data(text(result).utf8)) as! [String: Any]
+        return json["meetings"] as! [[String: Any]]
+    }
+
+    func testGetAllFollowupsReturnsMeetingsNewestFirst() throws {
+        // Fixture meeting (now) plus an older one; a followup-less meeting exists too.
+        try archive.saveFollowups([makeFollowup(title: "New item", status: .proposed)], for: meeting.id)
+        let old = try seedMeeting(title: "Old planning", daysAgo: 30, followups: [
+            makeFollowup(title: "Old item", status: .done),
+        ])
+        _ = try seedMeeting(title: "No followups here", daysAgo: 1, followups: [])
+
+        let result = try callTool("get_all_followups", [:], id: 50)
+        XCTAssertEqual(result["isError"] as? Bool, false)
+        let meetings = try meetingsEnvelope(result)
+        XCTAssertEqual(meetings.count, 2)
+        XCTAssertEqual(meetings[0]["meeting_id"] as? String, meeting.id.uuidString)
+        XCTAssertEqual(meetings[0]["meeting_title"] as? String, "Roadmap sync")
+        XCTAssertEqual(meetings[1]["meeting_id"] as? String, old.id.uuidString)
+        let items = meetings[0]["items"] as! [[String: Any]]
+        XCTAssertEqual(items[0]["title"] as? String, "New item")
+        XCTAssertEqual(items[0]["status"] as? String, "proposed")
+        XCTAssertNotNil(items[0]["created_at"])
+    }
+
+    func testGetAllFollowupsOpenFilter() throws {
+        try archive.saveFollowups([
+            makeFollowup(title: "Proposed item", status: .proposed),
+            makeFollowup(title: "In-progress item", status: .inProgress),
+            makeFollowup(title: "Done item", status: .done),
+            makeFollowup(title: "Dismissed item", status: .dismissed),
+        ], for: meeting.id)
+        _ = try seedMeeting(title: "All settled", daysAgo: 2, followups: [
+            makeFollowup(title: "Settled item", status: .done),
+        ])
+
+        let result = try callTool("get_all_followups", ["status": "open"], id: 51)
+        let meetings = try meetingsEnvelope(result)
+        // The all-done meeting drops out entirely once its items are filtered.
+        XCTAssertEqual(meetings.count, 1)
+        let titles = (meetings[0]["items"] as! [[String: Any]]).map { $0["title"] as! String }
+        XCTAssertEqual(titles.sorted(), ["In-progress item", "Proposed item"])
+    }
+
+    func testGetAllFollowupsDoneFilter() throws {
+        try archive.saveFollowups([
+            makeFollowup(title: "Proposed item", status: .proposed),
+            makeFollowup(title: "Done item", status: .done),
+        ], for: meeting.id)
+
+        let result = try callTool("get_all_followups", ["status": "done"], id: 52)
+        let meetings = try meetingsEnvelope(result)
+        XCTAssertEqual(meetings.count, 1)
+        let titles = (meetings[0]["items"] as! [[String: Any]]).map { $0["title"] as! String }
+        XCTAssertEqual(titles, ["Done item"])
+    }
+
+    func testGetAllFollowupsSinceFiltersByMeetingDate() throws {
+        try archive.saveFollowups([makeFollowup(title: "New item", status: .proposed)], for: meeting.id)
+        _ = try seedMeeting(title: "Old planning", daysAgo: 30, followups: [
+            makeFollowup(title: "Old item", status: .proposed),
+        ])
+
+        let since = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86400))
+        let result = try callTool("get_all_followups", ["since": since], id: 53)
+        let meetings = try meetingsEnvelope(result)
+        XCTAssertEqual(meetings.count, 1)
+        XCTAssertEqual(meetings[0]["meeting_id"] as? String, meeting.id.uuidString)
+    }
+
+    func testGetAllFollowupsBadSinceIsError() throws {
+        let result = try callTool("get_all_followups", ["since": "last tuesday"], id: 54)
+        XCTAssertEqual(result["isError"] as? Bool, true)
+    }
+
+    func testGetAllFollowupsBadStatusIsError() throws {
+        let result = try callTool("get_all_followups", ["status": "someday"], id: 55)
+        XCTAssertEqual(result["isError"] as? Bool, true)
+    }
+
+    func testGetAllFollowupsEmptyIsEnvelopeNotError() throws {
+        // The fixture meeting has no followups saved, so the queue is empty.
+        let result = try callTool("get_all_followups", [:], id: 56)
+        XCTAssertEqual(result["isError"] as? Bool, false)
+        XCTAssertEqual(try meetingsEnvelope(result).count, 0)
+    }
+
+    func testGetAllFollowupsCarriesStructuredContent() throws {
+        try archive.saveFollowups([makeFollowup(title: "New item", status: .proposed)], for: meeting.id)
+        let result = try callTool("get_all_followups", [:], id: 57)
+        let structured = result["structuredContent"] as! [String: Any]
+        XCTAssertEqual((structured["meetings"] as! [Any]).count, 1)
     }
 
     // MARK: - list_meetings since
@@ -533,6 +696,14 @@ final class MCPServerTests: XCTestCase {
         let html = contents[0]["text"] as! String
         XCTAssertTrue(html.contains("data-testid=\"parfait-followup-card\""))
         XCTAssertTrue(html.contains("ui/initialize")) // the postMessage glue is present
+        XCTAssertTrue(html.contains("appInfo")) // SDK-required initialize param (v1 sent clientInfo and rendered blank)
+    }
+
+    func testCardHTMLDoesNotReferenceRetiredTool() {
+        // update_followup_status was replaced by update_followup; a stale reference
+        // in the card JS would break every button on the card.
+        XCTAssertFalse(FollowupCard.html.contains("update_followup_status"))
+        XCTAssertTrue(FollowupCard.html.contains("update_followup"))
     }
 
     func testResourcesReadUnknownURIIsError() throws {
@@ -546,6 +717,13 @@ final class MCPServerTests: XCTestCase {
 
     func testGetFollowupsToolDeclaresUIResource() throws {
         let tool = MCPServer.toolDefinitions.first { $0["name"] as? String == "get_followups" }!
+        let meta = tool["_meta"] as! [String: Any]
+        let ui = meta["ui"] as! [String: Any]
+        XCTAssertEqual(ui["resourceUri"] as? String, FollowupCard.uri)
+    }
+
+    func testGetAllFollowupsToolDeclaresUIResource() throws {
+        let tool = MCPServer.toolDefinitions.first { $0["name"] as? String == "get_all_followups" }!
         let meta = tool["_meta"] as! [String: Any]
         let ui = meta["ui"] as! [String: Any]
         XCTAssertEqual(ui["resourceUri"] as? String, FollowupCard.uri)

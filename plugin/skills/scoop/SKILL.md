@@ -28,9 +28,10 @@ this skill without explicit user approval.
   name; also `list_meetings` for recent meetings and match attendees against
   transcript speaker names. Collect the handful of most relevant past
   meetings (recency and attendee overlap win).
-- For each relevant past meeting: read its notes via `get_meeting`, and call
-  `get_followups` to collect open items (status `proposed`, `approved`, or
-  `in_progress`). Only pull a full transcript if the notes leave a key point
+- Call `get_all_followups {status: "open"}` once for the open items across all
+  meetings, and keep those from the relevant meetings (and any others owed by
+  or to the attendees). For each relevant past meeting, read its notes via
+  `get_meeting`. Only pull a full transcript if the notes leave a key point
   unclear.
 
 ## Step 3 — Pull outside context (best effort)
@@ -52,5 +53,6 @@ One screen, in this order:
 - **Suggested talking points** — 3–5 bullets, most important first.
 - **Unanswered questions** — questions raised in past meetings never resolved.
 
-Close by offering to dig deeper into any past meeting (the dig-in skill) or
-draft anything the user owes before the meeting starts.
+Close by offering to work the open items now (the followups skill —
+`/parfait:followups`) or draft anything the user owes before the meeting
+starts.

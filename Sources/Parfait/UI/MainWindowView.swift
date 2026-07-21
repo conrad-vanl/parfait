@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum SidebarItem: Hashable {
+    case followups
     case meeting(UUID)
 }
 
@@ -28,10 +29,19 @@ struct MainWindowView: View {
         .background(Theme.surface(scheme))
         .onAppear { adoptPendingSelection() }
         .onChange(of: app.openMeetingID) { adoptPendingSelection() }
+        .onChange(of: app.openFollowupsTab) { adoptPendingSelection() }
+        // The MCP process may have written followups while we were inactive.
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification)) { _ in
+            app.store.refreshFollowupCount()
+        }
     }
 
     private func adoptPendingSelection() {
-        if let id = app.openMeetingID {
+        if app.openFollowupsTab {
+            selection = .followups
+            app.openFollowupsTab = false
+        } else if let id = app.openMeetingID {
             selection = .meeting(id)
             app.openMeetingID = nil
         } else if selection == nil, let first = app.store.meetings.first {
@@ -51,6 +61,12 @@ struct MainWindowView: View {
 
     private var sidebar: some View {
         List(selection: $selection) {
+            Section {
+                Label("Follow-ups", systemImage: "checklist")
+                    .font(.parfait(13, .medium))
+                    .badge(app.store.openFollowupCount)
+                    .tag(SidebarItem.followups)
+            }
             Section("Meetings") {
                 ForEach(filtered) { meeting in
                     MeetingRow(meeting: meeting, stage: app.processingStage[meeting.id])
@@ -79,6 +95,8 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detail: some View {
         switch selection {
+        case .followups:
+            FollowupsView()
         case .meeting(let id):
             if let meeting = app.store.meetings.first(where: { $0.id == id }) {
                 MeetingDetailView(meeting: meeting)

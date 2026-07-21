@@ -45,8 +45,8 @@ struct Meeting: Codable, Identifiable, Equatable, Sendable {
 }
 
 /// A commitment extracted from a meeting: an action item, open question, or
-/// thing to chase. Written by Claude over MCP (save_followups); the app only
-/// stores and displays them.
+/// thing to chase. Extracted by the pipeline at summary time; curated in the
+/// app's Follow-ups tab; worked and updated by Claude over MCP.
 struct Followup: Codable, Identifiable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable {
         case action
@@ -76,6 +76,11 @@ struct Followup: Codable, Identifiable, Equatable, Sendable {
     var note: String?
     var createdAt: Date
     var updatedAt: Date
+}
+
+extension Followup {
+    /// Still on the queue: anything not yet done or dismissed.
+    var isOpen: Bool { status != .done && status != .dismissed }
 }
 
 extension Meeting {

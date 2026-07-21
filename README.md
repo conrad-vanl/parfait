@@ -43,13 +43,15 @@ history, or the meeting happening <em>right now</em> — with nothing uploaded.
   opens Claude on the call in progress. Parfait exposes the running transcript through a
   `get_live_transcript` MCP tool, so Claude can answer "what did I miss?" or "what should I ask
   next?" — no pasting, and it rides over full-screen Zoom.
-- **Claude as your executive assistant.** Parfait ships a Claude plugin with three skills:
-  **dig in** (`/parfait:dig-in` — after a meeting, extract commitments and open questions, match
-  them against your Linear/email/calendar connectors, act on them with your approval, and track
-  them as follow-ups the app displays), **scoop** (`/parfait:scoop` — a pre-meeting brief from
-  past meetings with the same people and their open commitments), and **digest**
-  (`/parfait:digest` — a weekly rollup of decisions and commitments). When notes are ready, the
-  notification's "Dig in with Claude" button drops you straight into the flow.
+- **Claude as your executive assistant.** Parfait extracts follow-up items when it writes a
+  meeting's notes — the notification says "Notes ready — N follow-ups suggested" — and you curate
+  them in the app's Follow-ups tab: edit each item's instructions, dismiss what you don't want.
+  Then hand the queue to Claude: **followups** (`/parfait:followups`, or just "Work on my
+  followups" — works each item autonomously through your Linear/email/Slack/calendar connectors
+  and records results back into Parfait; your review of the list is the approval). The plugin
+  adds two more skills: **scoop** (`/parfait:scoop` — a pre-meeting brief from past meetings with
+  the same people and their open commitments) and **digest** (`/parfait:digest` — a weekly rollup
+  of decisions and commitments).
 - **Chat with one meeting, natively in Claude.** "Open in Claude" on any meeting opens Claude
   with that meeting loaded through Parfait's MCP server — Claude reads it itself; nothing is
   copied in. "Ask Claude" in the toolbar points it at your whole library the same way, and once
@@ -75,7 +77,7 @@ Parfait has no backend, no accounts, and no API keys. It composes things your Ma
 | Speaker separation | FluidAudio CoreML diarization (on device) |
 | Summaries, titles | Apple Intelligence FoundationModels (on device) |
 | Long meetings, publishing | **Your own** Claude account via the `claude` CLI |
-| Chat + assistant skills (dig in, scoop, digest) | **Your own** Claude — Desktop or Code — via the Parfait plugin (MCP server + skills) |
+| Chat + assistant skills (followups, scoop, digest) | **Your own** Claude — Desktop or Code — via the Parfait plugin (MCP server + skills) |
 | Publish target | **Your own** GitHub via `gh` (secret gist), served back rendered by **notes.parfait.to** (Parfait's own CDN in front of your gist), or a local browser preview / HTML export |
 
 ## Requirements
@@ -84,7 +86,7 @@ Parfait has no backend, no accounts, and no API keys. It composes things your Ma
 - **Apple Intelligence enabled** (Settings → Apple Intelligence & Siri) for on-device summaries
 - **Required for chat + assistant skills:** [Claude Desktop](https://claude.ai/download) and the
   Parfait plugin (one-click install from onboarding or Settings → Intelligence) — the "Open in
-  Claude" and "Dig in with Claude" buttons open a pre-filled prompt there
+  Claude" and "Work on my follow-ups with Claude" buttons open a pre-filled prompt there
 - Optional: [Claude Code](https://claude.com/claude-code) (`claude` CLI, logged in) — installs the
   plugin, and unlocks long-meeting summaries billed to your own plan
 - Optional: [GitHub CLI](https://cli.github.com) (`gh auth login`) — to publish a shareable rendered
@@ -119,7 +121,7 @@ claude plugin install parfait@parfait
 
 The plugin registers Parfait's MCP server (via a launcher script the app maintains at
 `~/Library/Application Support/Parfait/bin/parfait-mcp`, so app updates never break it) and adds
-the three skills — `/parfait:dig-in`, `/parfait:scoop`, `/parfait:digest` — to Claude Code and
+the three skills — `/parfait:followups`, `/parfait:scoop`, `/parfait:digest` — to Claude Code and
 Claude Desktop alike. Launch Parfait.app at least once first so the launcher script exists.
 
 Then from any `claude` session or Claude Desktop chat:
@@ -128,8 +130,9 @@ Then from any `claude` session or Claude Desktop chat:
 
 The MCP server (`Parfait --mcp`) speaks stdio over your on-disk library. Read tools:
 `list_meetings`, `search_meetings`, `get_meeting`, `get_transcript`, `get_live_transcript`
-(the meeting in progress), and `get_followups`. Write tools: `regenerate_summary`,
-`update_summary`, `save_followups`, `update_followup_status`, `publish_meeting`, and the template
+(the meeting in progress), `get_followups`, and `get_all_followups` (the cross-meeting queue).
+Write tools: `regenerate_summary`,
+`update_summary`, `save_followups`, `update_followup`, `publish_meeting`, and the template
 tools (`list_templates`, `get_template`, `create_template`, `update_template`, `rename_template`,
 `delete_template`). Nothing leaves your Mac except what the model reads or writes through them.
 

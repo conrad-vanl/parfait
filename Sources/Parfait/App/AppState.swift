@@ -40,6 +40,13 @@ final class AppState: NSObject, ObservableObject {
     @Published var lastError: String?
     /// Set by the menu bar to steer the main window's selection.
     @Published var openMeetingID: UUID?
+    /// Steers the main window to the cross-meeting Follow-ups tab (e.g. from a
+    /// "notes ready" notification when the meeting has suggested follow-ups).
+    @Published var openFollowupsTab = false
+    /// Opens the main window from non-view contexts (the notification handler).
+    /// SwiftUI's openWindow only exists in the environment, so the always-alive
+    /// menu-bar label view assigns this bridge at launch.
+    var openMainWindow: (() -> Void)?
     /// Apps currently holding the mic open, live and independent of recording
     /// state — feeds auto-stop (any recording, not just auto-started ones) and
     /// the Settings "currently hearing" diagnostic row.
@@ -339,6 +346,8 @@ final class AppState: NSObject, ObservableObject {
             fresh.title = title
         }
         store.upsert(fresh)
+        // The pipeline may have just extracted follow-ups — keep the badge honest.
+        store.refreshFollowupCount()
         if fresh.state == .ready {
             notifyReady(fresh)
         }
@@ -538,13 +547,6 @@ final class AppState: NSObject, ObservableObject {
         guard Bundle.main.bundleIdentifier != nil else { return } // bare `swift run` has no bundle
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        // "Notes ready" carries a Dig-in action so the handoff to Claude is one click
-        // from the banner.
-        let digIn = UNNotificationAction(identifier: "dig-in", title: "Dig in with Claude", options: [])
-        center.setNotificationCategories([
-            UNNotificationCategory(identifier: "meeting-ready", actions: [digIn],
-                                   intentIdentifiers: [], options: [])
-        ])
         // Meeting detection is surfaced by the floating card + chime + menu-bar glyph, not a
         // notification (that only buried the prompt in Notification Center). The only notification
         // left is "notes are ready", so we just need alert+sound authorization for that.
@@ -586,8 +588,12 @@ final class AppState: NSObject, ObservableObject {
         guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = meeting.title
-        content.body = "Notes ready — dig in with Claude."
-        content.categoryIdentifier = "meeting-ready"
+        let count = store.followups(for: meeting.id).count
+        content.body = switch count {
+        case 0: "Notes ready."
+        case 1: "Notes ready — 1 follow-up suggested."
+        default: "Notes ready — \(count) follow-ups suggested."
+        }
         let request = UNNotificationRequest(
             identifier: "ready-\(meeting.id)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
@@ -600,20 +606,25 @@ extension AppState: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         // Only the "notes are ready" notification remains (detection uses the floating card now).
-        // Tapping it surfaces that meeting — it must never start a recording.
+        // Tapping it surfaces the app — it must never start a recording.
         let identifier = response.notification.request.identifier
         guard identifier.hasPrefix("ready-"),
               let id = UUID(uuidString: String(identifier.dropFirst("ready-".count))) else { return }
         let action = response.actionIdentifier
         await MainActor.run {
-            if action == "dig-in" {
-                let title = AppState.shared.store.meeting(id: id)?.title ?? "Meeting"
-                ClaudeLink.openDigIn(meetingID: id, title: title)
-            } else if action == UNNotificationDefaultActionIdentifier {
-                AppState.shared.openMeetingID = id
-                NSApp.activate()
-            }
             // Dismissal (or any future action) must not steal focus.
+            guard action == UNNotificationDefaultActionIdentifier else { return }
+            if AppState.shared.store.followups(for: id).isEmpty {
+                AppState.shared.openMeetingID = id
+            } else {
+                // The meeting produced suggested follow-ups — land the user on the
+                // cross-meeting Follow-ups tab, where review/curation happens.
+                AppState.shared.openFollowupsTab = true
+            }
+            // The main window is usually closed (menu-bar app) and activation
+            // alone won't reopen it — the tap must land somewhere visible.
+            AppState.shared.openMainWindow?()
+            NSApp.activate()
         }
     }
 

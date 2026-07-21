@@ -73,17 +73,18 @@ struct NotesTab: View {
         .onChange(of: meeting.id) { followups = app.store.followups(for: meeting.id) }
     }
 
-    /// Read-only: Claude writes these via MCP (save_followups); the app only
-    /// displays them, with one handoff action back into the dig-in skill.
+    /// Read-only glance at this meeting's items — the Follow-ups tab is where
+    /// they get edited. The one action here hands this meeting's open items to
+    /// Claude (the followups skill).
     private var followupsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Follow-ups")
                 .font(.parfait(13, .semibold))
             ForEach(followups) { FollowupRow(item: $0) }
             Button {
-                ClaudeLink.openDigIn(meetingID: meeting.id, title: meeting.title)
+                ClaudeLink.openFollowups(scope: .meeting(id: meeting.id, title: meeting.title))
             } label: {
-                Label("Dig in with Claude", systemImage: "sparkles")
+                Label("Work on these with Claude", systemImage: "sparkles")
                     .font(.parfait(12, .medium))
             }
             .buttonStyle(.borderless)
@@ -157,75 +158,6 @@ struct NotesTab: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Rewrite the notes with a different template")
-    }
-}
-
-private struct FollowupRow: View {
-    let item: Followup
-
-    private var muted: Bool { item.status == .done || item.status == .dismissed }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: icon)
-                .font(.parfait(12))
-                .foregroundStyle(.secondary)
-            Text(item.title)
-                .font(.parfait(12))
-                .strikethrough(item.status == .done)
-                .foregroundStyle(muted ? Color.secondary : Color.primary)
-                .lineLimit(2)
-            if let owner = item.owner {
-                Text(owner)
-                    .font(.parfait(11))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            // Claude-written field with untrusted provenance — only open web URLs,
-            // matching the follow-up card's http(s) allow-list.
-            if let result = item.resultURL, let url = URL(string: result),
-               url.scheme == "http" || url.scheme == "https" {
-                Link(destination: url) {
-                    Image(systemName: "arrow.up.forward.square")
-                        .font(.parfait(11))
-                }
-                .help(result)
-            }
-            Text(statusLabel)
-                .font(.parfait(10, .medium))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(statusColor.opacity(0.16), in: Capsule())
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var icon: String {
-        switch item.kind {
-        case .action: return "checkmark.circle"
-        case .question: return "questionmark.circle"
-        case .followup: return "arrow.uturn.right.circle"
-        }
-    }
-
-    private var statusLabel: String {
-        switch item.status {
-        case .proposed: return "proposed"
-        case .approved: return "approved"
-        case .inProgress: return "in progress"
-        case .done: return "done"
-        case .dismissed: return "dismissed"
-        }
-    }
-
-    private var statusColor: Color {
-        switch item.status {
-        case .proposed: return Theme.honey
-        case .approved: return Theme.blueberry
-        case .inProgress: return Theme.raspberry
-        case .done: return Theme.mint
-        case .dismissed: return .gray
-        }
     }
 }
 

@@ -22,10 +22,12 @@ are no meetings in the window, say so and stop.
 
 ## Step 2 — Fold over the meetings
 
-For each meeting, oldest first:
+Call `get_all_followups` once (no status filter — the digest wants done and
+dismissed items from the window too, and open items from *before* the window
+for aging). Then, for each meeting in the window, oldest first:
 
 - `get_meeting` for notes and metadata.
-- `get_followups` for its followup items and statuses.
+- Its followup items and statuses come from the `get_all_followups` result.
 - Only fetch a transcript (`get_transcript`) if a specific point needs
   verification — the digest should be cheap to run.
 
@@ -37,7 +39,6 @@ Accumulate across meetings:
   `in_progress`) from before this window is **overdue-flavored** — call it
   out.
 - **Questions** raised and never answered in any later meeting.
-- Meetings with **no followups recorded** — candidates for a dig-in.
 
 ## Step 3 — Report
 
@@ -54,6 +55,7 @@ Compact, scannable, in this order:
 
 ## Step 4 — Offer next steps
 
-Offer to dig into any listed meeting (the dig-in skill handles extraction and
-action), or to draft a status update from the digest. Do not update followup
-statuses from here unless the user asks.
+Offer to work the open commitments now (the followups skill —
+`/parfait:followups`), or to draft a status update from the digest. Do not
+update followup statuses from here unless the user asks — status changes go
+through `update_followup`, and that's the followups skill's job.

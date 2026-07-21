@@ -22,10 +22,13 @@ claude plugin install parfait@parfait
 
 ## Skills
 
-- **dig-in** — post-meeting flow. Reads a meeting's notes and transcript,
-  extracts commitments and open questions, proposes actions (enriched by your
-  connectors — Linear, Gmail, Slack, Calendar…), executes only what you
-  approve, and writes followups back to Parfait.
+- **followups** — the batch worker. Parfait extracts follow-up items when it
+  writes a meeting's notes; you curate them in the app's Follow-ups tab (edit
+  each item's instructions, dismiss what you don't want). Then say "Work on my
+  followups" and Claude works the queue autonomously through your connectors
+  (Linear, Gmail, Slack, Calendar…), recording status and result links back
+  into Parfait. Your review of the list is the approval — no per-item
+  confirmations.
 - **scoop** — pre-meeting brief. Finds past meetings with the same people,
   collects open commitments and unanswered questions, and hands you a
   one-screen brief with talking points.
@@ -34,4 +37,4 @@ claude plugin install parfait@parfait
   week's meetings.
 
 Claude invokes these automatically when relevant, and each is also a slash
-command: `/parfait:dig-in`, `/parfait:scoop`, `/parfait:digest`.
+command: `/parfait:followups`, `/parfait:scoop`, `/parfait:digest`.

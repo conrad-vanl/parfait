@@ -80,7 +80,8 @@ final class MCPServer {
                 ]
                 // MCP Apps hosts hand structuredContent to the follow-up card
                 // (see FollowupCard); the text envelope stays for text-only hosts.
-                if name == "get_followups", let data = text.data(using: .utf8),
+                if name == "get_followups" || name == "get_all_followups",
+                   let data = text.data(using: .utf8),
                    let envelope = try? JSONSerialization.jsonObject(with: data) {
                     result["structuredContent"] = envelope
                 }
@@ -96,7 +97,7 @@ final class MCPServer {
                 "uri": FollowupCard.uri,
                 "name": "followup-card",
                 "title": "Follow-up card",
-                "description": "Interactive card for a meeting's follow-ups: renders get_followups results with inline approve/dismiss.",
+                "description": "Interactive card for the follow-up queue: renders get_followups and get_all_followups results with inline instruction editing, Done/Dismiss, and a hand-off to Claude.",
                 "mimeType": FollowupCard.mimeType,
             ] as [String: Any]]])
         case "resources/read":
@@ -125,7 +126,7 @@ final class MCPServer {
                 "type": "object",
                 "properties": [
                     "limit": ["type": "integer", "description": "Max meetings to return (default 20)"],
-                    "since": ["type": "string", "description": "Only meetings created at or after this ISO8601 date or date-time (e.g. \"2026-07-01\" or \"2026-07-01T09:00:00Z\"). Use for \"what's new since the last dig-in/digest\" queries."],
+                    "since": ["type": "string", "description": "Only meetings created at or after this ISO8601 date or date-time (e.g. \"2026-07-01\" or \"2026-07-01T09:00:00Z\"). Use for \"what's new since the last digest\" queries."],
                 ],
             ] as [String: Any],
         ],
@@ -212,8 +213,22 @@ final class MCPServer {
             "_meta": ["ui": ["resourceUri": FollowupCard.uri]] as [String: Any],
         ],
         [
+            "name": "get_all_followups",
+            "description": "Get the cross-meeting follow-up queue: every meeting's follow-ups as JSON, newest meeting first, meetings with none omitted. Returns {meetings: [{meeting_id, meeting_title, items}]}. Pass status \"open\" for the working queue (proposed + approved + in_progress). The followups and digest skills should prefer one call to this over per-meeting get_followups calls.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "status": ["type": "string", "enum": ["open", "proposed", "approved", "in_progress", "done", "dismissed"], "description": "Only items with this status; \"open\" means proposed, approved, or in_progress. Omit for all."] as [String: Any],
+                    "since": ["type": "string", "description": "Only meetings created at or after this ISO8601 date or date-time (e.g. \"2026-07-01\" or \"2026-07-01T09:00:00Z\")."],
+                ] as [String: Any],
+            ] as [String: Any],
+            // MCP Apps: the follow-up card renders this tool's result too
+            // (cross-meeting envelope), not just get_followups.
+            "_meta": ["ui": ["resourceUri": FollowupCard.uri]] as [String: Any],
+        ],
+        [
             "name": "save_followups",
-            "description": "Replace a meeting's follow-up list in full. Each item needs a title; kind is action/question/followup (default followup) and status is proposed/approved/in_progress/done/dismissed (default proposed). Pass an item's existing id to keep its identity (and created_at) across saves; omit id for new items. To change one item's status, prefer update_followup_status.",
+            "description": "Replace a meeting's follow-up list in full. Each item needs a title; kind is action/question/followup (default followup) and status is proposed/approved/in_progress/done/dismissed (default proposed). Pass an item's existing id to keep its identity (and created_at) across saves; omit id for new items. To change one item, prefer update_followup.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
@@ -242,18 +257,21 @@ final class MCPServer {
             ] as [String: Any],
         ],
         [
-            "name": "update_followup_status",
-            "description": "Update one follow-up's status by meeting id + follow-up id, optionally attaching a note and/or result_url. Use this instead of save_followups when only one item changes.",
+            "name": "update_followup",
+            "description": "Edit one follow-up by meeting id + follow-up id: change its status and/or edit its title, suggested_action, owner, note, or result_url. Pass only the fields to change (at least one). Use this instead of save_followups when only one item changes.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
                     "meeting_id": ["type": "string", "description": "Meeting UUID"],
-                    "followup_id": ["type": "string", "description": "Follow-up UUID from get_followups"],
+                    "followup_id": ["type": "string", "description": "Follow-up UUID from get_followups/get_all_followups"],
                     "status": ["type": "string", "enum": ["proposed", "approved", "in_progress", "done", "dismissed"], "description": "New status"] as [String: Any],
-                    "note": ["type": "string", "description": "Optional note about the change"],
-                    "result_url": ["type": "string", "description": "Optional link to whatever resolved it"],
+                    "title": ["type": "string", "description": "New short imperative description"],
+                    "suggested_action": ["type": "string", "description": "New instructions for executing the item"],
+                    "owner": ["type": "string", "description": "Who's on the hook (attendee/speaker name)"],
+                    "note": ["type": "string", "description": "Note about the change"],
+                    "result_url": ["type": "string", "description": "Link to whatever resolved it"],
                 ] as [String: Any],
-                "required": ["meeting_id", "followup_id", "status"],
+                "required": ["meeting_id", "followup_id"],
             ] as [String: Any],
         ],
         [
@@ -415,6 +433,39 @@ final class MCPServer {
             let meeting = try meetingArg(arguments)
             return Self.followupsJSON(meeting: meeting, items: archive.followups(for: meeting.id))
 
+        case "get_all_followups":
+            var statuses: Set<Followup.Status>?
+            if let statusString = arguments["status"] as? String, !statusString.isEmpty {
+                if statusString == "open" {
+                    statuses = [.proposed, .approved, .inProgress]
+                } else if let status = Followup.Status(rawValue: statusString) {
+                    statuses = [status]
+                } else {
+                    throw ToolError.badArgument(
+                        "'status' must be one of open, proposed, approved, in_progress, done, dismissed")
+                }
+            }
+            var since: Date?
+            if let sinceString = arguments["since"] as? String, !sinceString.isEmpty {
+                guard let date = Self.parseISODate(sinceString) else {
+                    throw ToolError.badArgument(
+                        "'since' must be an ISO8601 date or date-time, e.g. \"2026-07-01\" or \"2026-07-01T09:00:00Z\"")
+                }
+                since = date
+            }
+            let meetings: [[String: Any]] = archive.allFollowups().compactMap { entry in
+                if let since, entry.meeting.createdAt < since { return nil }
+                let items = statuses.map { wanted in entry.items.filter { wanted.contains($0.status) } }
+                    ?? entry.items
+                guard !items.isEmpty else { return nil }
+                return [
+                    "meeting_id": entry.meeting.id.uuidString,
+                    "meeting_title": entry.meeting.title,
+                    "items": Self.encodeFollowups(items),
+                ]
+            }
+            return Self.prettyJSON(["meetings": meetings])
+
         case "save_followups":
             let meeting = try meetingArg(arguments)
             guard let rawItems = arguments["items"] as? [[String: Any]] else {
@@ -452,29 +503,54 @@ final class MCPServer {
             try archive.saveFollowups(items, for: meeting.id)
             return "Saved \(items.count) follow-up\(items.count == 1 ? "" : "s") for \"\(meeting.title)\"."
 
-        case "update_followup_status":
+        case "update_followup":
             let meeting = try meetingArg(arguments)
             guard let idString = arguments["followup_id"] as? String,
                   let followupID = UUID(uuidString: idString)
             else {
                 throw ToolError.badArgument("'followup_id' must be a follow-up UUID")
             }
-            guard let statusString = arguments["status"] as? String,
-                  let status = Followup.Status(rawValue: statusString)
-            else {
-                throw ToolError.badArgument(
-                    "'status' must be one of proposed, approved, in_progress, done, dismissed")
-            }
             var items = archive.followups(for: meeting.id)
             guard let i = items.firstIndex(where: { $0.id == followupID }) else {
                 throw ToolError.badArgument("No follow-up with id \(idString) in \"\(meeting.title)\"")
             }
-            items[i].status = status
-            if let note = arguments["note"] as? String { items[i].note = note }
-            if let url = arguments["result_url"] as? String { items[i].resultURL = url }
+            var changed: [String] = []
+            if let statusString = arguments["status"] as? String {
+                guard let status = Followup.Status(rawValue: statusString) else {
+                    throw ToolError.badArgument(
+                        "'status' must be one of proposed, approved, in_progress, done, dismissed")
+                }
+                items[i].status = status
+                changed.append("status → \(status.rawValue)")
+            }
+            if let title = arguments["title"] as? String {
+                guard !title.isEmpty else { throw ToolError.badArgument("'title' can't be empty") }
+                items[i].title = title
+                changed.append("title")
+            }
+            if let action = arguments["suggested_action"] as? String {
+                items[i].suggestedAction = action
+                changed.append("suggested_action")
+            }
+            if let owner = arguments["owner"] as? String {
+                items[i].owner = owner
+                changed.append("owner")
+            }
+            if let note = arguments["note"] as? String {
+                items[i].note = note
+                changed.append("note")
+            }
+            if let url = arguments["result_url"] as? String {
+                items[i].resultURL = url
+                changed.append("result_url")
+            }
+            guard !changed.isEmpty else {
+                throw ToolError.badArgument(
+                    "Pass at least one field to change: status, title, suggested_action, owner, note, or result_url")
+            }
             items[i].updatedAt = Date()
             try archive.saveFollowups(items, for: meeting.id)
-            return "\"\(items[i].title)\" is now \(status.rawValue)."
+            return "Updated \"\(items[i].title)\": \(changed.joined(separator: ", "))."
 
         case "publish_meeting":
             return try publishMeeting(meeting: try meetingArg(arguments))
@@ -661,11 +737,11 @@ final class MCPServer {
             ?? isoDateOnly.date(from: string)
     }
 
-    /// Pretty-printed JSON envelope for get_followups. Keys are snake_case (the
-    /// tool contract) even though the on-disk Codable keys are camelCase; nil
-    /// fields are omitted.
-    private static func followupsJSON(meeting: Meeting, items: [Followup]) -> String {
-        let encoded: [[String: Any]] = items.map { f in
+    /// The snake_case item shape shared by get_followups and get_all_followups
+    /// (the tool contract, even though the on-disk Codable keys are camelCase);
+    /// nil fields are omitted.
+    private static func encodeFollowups(_ items: [Followup]) -> [[String: Any]] {
+        items.map { f in
             var d: [String: Any] = [
                 "id": f.id.uuidString,
                 "kind": f.kind.rawValue,
@@ -681,11 +757,18 @@ final class MCPServer {
             if let v = f.note { d["note"] = v }
             return d
         }
-        let envelope: [String: Any] = [
+    }
+
+    /// Pretty-printed JSON envelope for get_followups.
+    private static func followupsJSON(meeting: Meeting, items: [Followup]) -> String {
+        prettyJSON([
             "meeting_id": meeting.id.uuidString,
             "meeting_title": meeting.title,
-            "items": encoded,
-        ]
+            "items": encodeFollowups(items),
+        ])
+    }
+
+    private static func prettyJSON(_ envelope: [String: Any]) -> String {
         guard let data = try? JSONSerialization.data(
             withJSONObject: envelope, options: [.prettyPrinted, .sortedKeys])
         else { return "{}" }

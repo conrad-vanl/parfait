@@ -103,10 +103,11 @@ enum ParfaitPlugin {
         return .success(())
     }
 
-    /// Blocking; call off the main thread.
+    /// Blocking; call off the main thread. The bare plugin name is ambiguous to
+    /// the CLI ("not found") — update requires the full plugin@marketplace ref.
     static func update() -> Result<Void, InstallError> {
         guard let cli = ClaudeCLI.resolveBlocking() else { return .failure(.cliMissing) }
-        return run(cli, ["plugin", "update", pluginName]).map { _ in () }
+        return run(cli, ["plugin", "update", installRef]).map { _ in () }
     }
 
     /// Treats a nonzero exit whose message says "already …" as success — both
