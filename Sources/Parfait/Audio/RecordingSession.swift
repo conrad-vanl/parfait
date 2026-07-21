@@ -22,6 +22,7 @@ final class RecordingSession: ObservableObject {
     private let tap = SystemAudioTap()
     private let archive: MeetingArchive
     private var liveTranscriber: LiveTranscriber?
+    private var screenshotSampler: ScreenshotSampler?
     private var lastLivePersist = Date.distantPast
     private var ticker: Timer?
 
@@ -77,6 +78,16 @@ final class RecordingSession: ObservableObject {
         // Model/asset setup is async; buffers fed before it's ready are dropped.
         Task { try? await live.start(locale: .current) }
 
+        // Opt-in experimental capture: a few screenshots across the meeting,
+        // mined afterwards for participant names. Best-effort — a missing
+        // Screen Recording permission (or any capture failure) degrades to
+        // "no screenshots" and never affects the recording.
+        if AppSettings.captureScreenshots {
+            let sampler = ScreenshotSampler(directory: archive.screenshotsDir(for: meetingID))
+            sampler.start()
+            screenshotSampler = sampler
+        }
+
         ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -117,6 +128,8 @@ final class RecordingSession: ObservableObject {
     func stop() {
         ticker?.invalidate()
         ticker = nil
+        screenshotSampler?.stop()
+        screenshotSampler = nil
         if micStarted { mic.stop() }
         if systemStarted { tap.stop() }
         if let live = liveTranscriber {

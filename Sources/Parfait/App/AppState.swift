@@ -12,6 +12,8 @@ enum SummaryProgress {
     case streaming
     /// A draft is on screen and the improvement pass is running.
     case improving
+    /// A targeted speaker-name update pass is rewriting the saved notes.
+    case updatingNames
 }
 
 @MainActor
@@ -406,9 +408,10 @@ final class AppState: NSObject, ObservableObject {
 
         var generatedTitle: String?
         if case .success(let summary, let provider) = outcome,
-           entry.calendarEventTitle == nil {
+           ProcessingPipeline.titleStep(for: entry, summary: summary) != .keep {
             processingStage[meetingID] = "Naming the meeting…"
-            generatedTitle = await ProcessingPipeline.generateTitle(summary: summary, provider: provider)
+            generatedTitle = await ProcessingPipeline.resolveTitle(
+                meeting: entry, summary: summary, provider: provider)
         }
         processingStage[meetingID] = nil
         streamingSummaries[meetingID] = nil
@@ -427,6 +430,85 @@ final class AppState: NSObject, ObservableObject {
             fresh.notice = why
         }
         store.upsert(fresh)
+    }
+
+    // MARK: - Speaker-name updates in the notes
+
+    /// Per-meeting old-name → new-name map accumulated from renames/merges,
+    /// applied to the saved notes by one debounced background pass.
+    private var pendingNameUpdates: [UUID: [String: String]] = [:]
+    private var nameUpdateTasks: [UUID: Task<Void, Never>] = [:]
+    /// Meetings with a pass currently running — a rename landing mid-pass
+    /// reschedules the debounce instead of racing the in-flight pass.
+    private var nameUpdatesInFlight: Set<UUID> = []
+    private static let nameUpdateDebounce: Duration = .seconds(4)
+
+    /// Called by the rename/merge UI after a speaker's display name changed.
+    /// Debounces a few seconds past the last change, then runs ONE targeted
+    /// LLM pass that swaps the names inside the already-written notes — never
+    /// a full regeneration.
+    func noteSpeakerRename(meetingID: UUID, from oldName: String, to newName: String) {
+        let map = SummaryNameUpdater.coalescing(
+            pendingNameUpdates[meetingID] ?? [:], renaming: oldName, to: newName)
+        pendingNameUpdates[meetingID] = map.isEmpty ? nil : map
+        guard !map.isEmpty else {
+            // The renames cancelled out (back to the original name) — nothing to do.
+            nameUpdateTasks[meetingID]?.cancel()
+            nameUpdateTasks[meetingID] = nil
+            return
+        }
+        scheduleNameUpdate(meetingID)
+    }
+
+    private func scheduleNameUpdate(_ meetingID: UUID) {
+        nameUpdateTasks[meetingID]?.cancel()
+        nameUpdateTasks[meetingID] = Task { [weak self] in
+            try? await Task.sleep(for: Self.nameUpdateDebounce)
+            guard !Task.isCancelled else { return }
+            await self?.runNameUpdate(meetingID)
+        }
+    }
+
+    private func runNameUpdate(_ meetingID: UUID) async {
+        // A pass is already running for this meeting: let it finish, then debounce again.
+        guard !nameUpdatesInFlight.contains(meetingID) else {
+            scheduleNameUpdate(meetingID)
+            return
+        }
+        guard let renames = pendingNameUpdates[meetingID], !renames.isEmpty else { return }
+        guard let meeting = store.meeting(id: meetingID) else {
+            pendingNameUpdates[meetingID] = nil
+            return
+        }
+        let summary = store.summary(for: meetingID)
+        let busy = summaryProgress[meetingID] != nil || processingStage[meetingID] != nil
+        guard SummaryNameUpdater.shouldRun(
+            meetingState: meeting.state, summary: summary, summaryBusy: busy)
+        else {
+            // Drop, don't defer: any summary written later (pipeline or regenerate)
+            // is generated from the current, already-renamed speakers.
+            pendingNameUpdates[meetingID] = nil
+            return
+        }
+        pendingNameUpdates[meetingID] = nil
+        nameUpdatesInFlight.insert(meetingID)
+        summaryProgress[meetingID] = .updatingNames
+        defer {
+            nameUpdatesInFlight.remove(meetingID)
+            if summaryProgress[meetingID] == .updatingNames { summaryProgress[meetingID] = nil }
+        }
+
+        let updated = await SummaryNameUpdater.rewrite(
+            summary: summary, renames: renames, provider: meeting.summaryProvider ?? "apple")
+
+        // Fail closed on a bad pass, and abort if the notes changed while it ran
+        // (a user edit or regeneration must never be clobbered — aborting is the
+        // simpler-but-safe option; a follow-up rename retriggers cleanly).
+        guard let updated,
+              store.meeting(id: meetingID) != nil,
+              SummaryNameUpdater.canCommit(original: summary, current: store.summary(for: meetingID))
+        else { return }
+        store.saveSummary(updated, for: meetingID)
     }
 
     /// Meetings left mid-flight by a crash or quit get pushed back through the

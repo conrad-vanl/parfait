@@ -192,6 +192,7 @@ private struct RecordingCardView: View {
     let onClose: () -> Void
     let onStop: () -> Void
     @Environment(\.colorScheme) private var scheme
+    @State private var followsLive = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -269,8 +270,39 @@ private struct RecordingCardView: View {
             }
             .frame(height: 190)
             .background(Theme.card(scheme), in: RoundedRectangle(cornerRadius: 8))
-            .onChange(of: session.liveSegments.count) { proxy.scrollTo("card-bottom", anchor: .bottom) }
-            .onChange(of: session.volatileText) { proxy.scrollTo("card-bottom", anchor: .bottom) }
+            // Follow new content only while the user is at (or near) the bottom; scrolling up
+            // holds their place until they scroll back down or tap "Jump to latest".
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.containerSize.height >=
+                    geo.contentSize.height + geo.contentInsets.bottom - 40
+            } action: { _, nearBottom in
+                followsLive = nearBottom
+            }
+            .onChange(of: session.liveSegments.count) {
+                if followsLive { proxy.scrollTo("card-bottom", anchor: .bottom) }
+            }
+            .onChange(of: session.volatileText) {
+                if followsLive { proxy.scrollTo("card-bottom", anchor: .bottom) }
+            }
+            .overlay(alignment: .bottom) {
+                if !followsLive {
+                    Button {
+                        followsLive = true
+                        proxy.scrollTo("card-bottom", anchor: .bottom)
+                    } label: {
+                        Label("Jump to latest", systemImage: "arrow.down")
+                            .font(.parfait(10, .semibold))
+                            .foregroundStyle(Theme.ink(scheme))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Theme.surface(scheme), in: Capsule())
+                            .overlay(Capsule().strokeBorder(.primary.opacity(0.08)))
+                            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 8)
+                }
+            }
         }
     }
 

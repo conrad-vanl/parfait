@@ -27,6 +27,7 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.useCalendar) private var useCalendar = true
     @AppStorage(SettingsKey.defaultTemplate) private var defaultTemplate = "Meeting Notes"
     @AppStorage(SettingsKey.systemAudioConfirmed) private var systemAudioConfirmed = false
+    @AppStorage(SettingsKey.captureScreenshots) private var captureScreenshots = false
 
     @State private var micStatus = MicRecorder.permissionGranted
     @State private var calendarStatus = CalendarMatcher.isAuthorized
@@ -61,6 +62,10 @@ private struct GeneralSettings: View {
                 Toggle("Stop recording automatically when the meeting ends", isOn: $autoStopRecording)
                     .disabled(!detectMeetings)
                 Text("Waits ~8s after the meeting app releases the microphone, in case it reconnects.")
+                    .font(.parfait(11))
+                    .foregroundStyle(.secondary)
+                Toggle("Capture screenshots to name participants (experimental)", isOn: $captureScreenshots)
+                Text("Takes a few screenshots while recording and asks Claude to read the participant names off your video-call window — helpful when a meeting has no calendar invite. Screenshots are analyzed only to identify participants and deleted right after processing. Needs Screen Recording permission and Claude Code.")
                     .font(.parfait(11))
                     .foregroundStyle(.secondary)
                 if detectMeetings {

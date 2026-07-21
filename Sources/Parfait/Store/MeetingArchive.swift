@@ -8,6 +8,7 @@ import Foundation
 ///         summary.md        markdown
 ///         mic.m4a           the user's microphone
 ///         system.m4a        everyone else (process tap)
+///         screenshots/      opt-in mid-meeting captures; deleted after processing
 ///
 /// Thread-safe for the app's usage pattern: the UI goes through the
 /// @MainActor MeetingStore wrapper; the MCP server process is read-only.
@@ -163,6 +164,29 @@ final class MeetingArchive: @unchecked Sendable {
 
     func removeLiveTranscript(for id: UUID) {
         queue.sync { try? FileManager.default.removeItem(at: liveTranscriptURL(for: id)) }
+    }
+
+    // MARK: - Screenshots (opt-in; present only until processing completes)
+
+    func screenshotsDir(for id: UUID) -> URL {
+        folder(for: id).appendingPathComponent("screenshots", isDirectory: true)
+    }
+
+    /// The captured screenshots, oldest first (file names encode the capture
+    /// offset, so lexicographic order is chronological order).
+    func screenshots(for id: UUID) -> [URL] {
+        queue.sync {
+            ((try? FileManager.default.contentsOfDirectory(
+                at: screenshotsDir(for: id), includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "png" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        }
+    }
+
+    /// Removes the whole screenshots subdir — nothing image-related outlives
+    /// processing, whether the participant pass ran or not.
+    func removeScreenshots(for id: UUID) {
+        queue.sync { try? FileManager.default.removeItem(at: screenshotsDir(for: id)) }
     }
 
     // MARK: - Summary

@@ -69,19 +69,37 @@ struct NotesTab: View {
     private var displayed: String { streaming ?? summary }
 
     /// "Writing…" while the draft streams; "Draft · improving" while the accurate
-    /// transcript is being turned into the better version.
+    /// transcript is being turned into the better version; "Updating names…"
+    /// while a speaker-name pass rewrites the saved notes.
     @ViewBuilder
     private var summaryBadge: some View {
         if let progress = app.summaryProgress[meeting.id] {
             HStack(spacing: 5) {
                 ProgressView().controlSize(.small).scaleEffect(0.6)
-                Text(progress == .improving ? "Draft · improving" : "Writing…")
+                Text(badgeLabel(progress))
                     .font(.parfait(11))
                     .foregroundStyle(.secondary)
             }
-            .help(progress == .improving
-                  ? "These notes were drafted from the live transcript. A more accurate version is on the way."
-                  : "Writing notes from the transcript…")
+            .help(badgeHelp(progress))
+        }
+    }
+
+    private func badgeLabel(_ progress: SummaryProgress) -> String {
+        switch progress {
+        case .streaming: return "Writing…"
+        case .improving: return "Draft · improving"
+        case .updatingNames: return "Updating names…"
+        }
+    }
+
+    private func badgeHelp(_ progress: SummaryProgress) -> String {
+        switch progress {
+        case .streaming:
+            return "Writing notes from the transcript…"
+        case .improving:
+            return "These notes were drafted from the live transcript. A more accurate version is on the way."
+        case .updatingNames:
+            return "Updating renamed speakers in the notes…"
         }
     }
 
@@ -118,6 +136,8 @@ struct TranscriptTab: View {
 
     @State private var renaming: Speaker?
     @State private var newName = ""
+    /// Existing same-named speaker found on commit — drives the merge confirmation.
+    @State private var mergeTarget: Speaker?
 
     private var segments: [TranscriptSegment] { app.store.transcript(for: meeting.id) }
 
@@ -274,12 +294,48 @@ struct TranscriptTab: View {
             }
         }
         .padding(20)
+        .alert(
+            Text("Merge with existing speaker \u{201C}\(mergeTarget?.name ?? "")\u{201D}?"),
+            isPresented: Binding(get: { mergeTarget != nil },
+                                 set: { if !$0 { mergeTarget = nil } }),
+            presenting: mergeTarget
+        ) { target in
+            Button("Merge") { applyMerge(speaker, into: target) }
+            Button("Rename Only") {
+                applyRename(speaker, to: newName.trimmingCharacters(in: .whitespaces))
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { target in
+            Text("This meeting already has a speaker named \u{201C}\(target.name)\u{201D}. Merging combines \u{201C}\(speaker.name)\u{201D}'s lines into them; renaming keeps two speakers with the same name.")
+        }
     }
 
     private func commitRename(_ speaker: Speaker) {
         let n = newName.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty else { return }
-        app.store.renameSpeaker(meetingID: meeting.id, speakerID: speaker.id, to: n)
+        // Renaming onto another speaker's name usually means "same person" —
+        // offer a merge before silently creating two same-named speakers.
+        if let existing = meeting.speakers.first(where: {
+            $0.id != speaker.id
+                && $0.name.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(n) == .orderedSame
+        }) {
+            mergeTarget = existing
+            return
+        }
+        applyRename(speaker, to: n)
+    }
+
+    private func applyRename(_ speaker: Speaker, to name: String) {
+        if app.store.renameSpeaker(meetingID: meeting.id, speakerID: speaker.id, to: name) {
+            app.noteSpeakerRename(meetingID: meeting.id, from: speaker.name, to: name)
+        }
+        renaming = nil
+    }
+
+    private func applyMerge(_ speaker: Speaker, into target: Speaker) {
+        if app.store.mergeSpeakers(meetingID: meeting.id, from: speaker.id, into: target.id) {
+            app.noteSpeakerRename(meetingID: meeting.id, from: speaker.name, to: target.name)
+        }
         renaming = nil
     }
 
@@ -304,6 +360,8 @@ struct TranscriptTab: View {
 /// processing finishes.
 struct LiveTranscriptView: View {
     @ObservedObject var session: RecordingSession
+    @Environment(\.colorScheme) private var scheme
+    @State private var followsLive = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -348,8 +406,39 @@ struct LiveTranscriptView: View {
                         .padding(20)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .onChange(of: session.liveSegments.count) { proxy.scrollTo("live-bottom", anchor: .bottom) }
-                    .onChange(of: session.volatileText) { proxy.scrollTo("live-bottom", anchor: .bottom) }
+                    // Follow new content only while the user is at (or near) the bottom; scrolling
+                    // up holds their place until they scroll back down or tap "Jump to latest".
+                    .onScrollGeometryChange(for: Bool.self) { geo in
+                        geo.contentOffset.y + geo.containerSize.height >=
+                            geo.contentSize.height + geo.contentInsets.bottom - 40
+                    } action: { _, nearBottom in
+                        followsLive = nearBottom
+                    }
+                    .onChange(of: session.liveSegments.count) {
+                        if followsLive { proxy.scrollTo("live-bottom", anchor: .bottom) }
+                    }
+                    .onChange(of: session.volatileText) {
+                        if followsLive { proxy.scrollTo("live-bottom", anchor: .bottom) }
+                    }
+                    .overlay(alignment: .bottom) {
+                        if !followsLive {
+                            Button {
+                                followsLive = true
+                                proxy.scrollTo("live-bottom", anchor: .bottom)
+                            } label: {
+                                Label("Jump to latest", systemImage: "arrow.down")
+                                    .font(.parfait(11, .semibold))
+                                    .foregroundStyle(Theme.ink(scheme))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Theme.surface(scheme), in: Capsule())
+                                    .overlay(Capsule().strokeBorder(.primary.opacity(0.08)))
+                                    .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.bottom, 12)
+                        }
+                    }
                 }
             }
         }

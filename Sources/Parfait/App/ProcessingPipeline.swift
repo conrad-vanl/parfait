@@ -41,6 +41,11 @@ enum ProcessingPipeline {
         var notices: [String] = meeting.notice.map { [$0] } ?? []
         var outcome = Outcome(state: .ready)
 
+        // Opt-in screenshots are single-use input to this run: whatever path the
+        // pipeline exits through (success, failure, early return), nothing
+        // image-related outlives processing.
+        defer { archive.removeScreenshots(for: id) }
+
         // 0. Draft the notes from the live transcript first, so they appear seconds
         //    after Stop (streamed token by token) while the accurate transcript is
         //    still being built. A failed draft just falls through to the batch pass.
@@ -92,10 +97,11 @@ enum ProcessingPipeline {
         guard micOut != nil || systemOut != nil else {
             // No accurate transcript. If a draft (and the live transcript AppState
             // already surfaced) exist, keep them rather than failing the meeting —
-            // and still name the meeting from the draft.
-            if let draft, meeting.calendarEventTitle == nil {
+            // and still name (or title-check) the meeting from the draft.
+            if let draft, titleStep(for: meeting, summary: draft.text) != .keep {
                 onProgress("Naming the meeting…")
-                outcome.generatedTitle = await generateTitle(summary: draft.text, provider: draft.provider)
+                outcome.generatedTitle = await resolveTitle(
+                    meeting: meeting, summary: draft.text, provider: draft.provider)
             }
             onSummary(.done)
             outcome.state = draft == nil ? .failed : .ready
@@ -123,9 +129,38 @@ enum ProcessingPipeline {
         }
 
         let myName = NSFullUserName().isEmpty ? "Me" : NSFullUserName()
-        let (segments, speakers) = SpeakerLabeler.label(
+        let (segments, labeledSpeakers) = SpeakerLabeler.label(
             mic: micOut, system: systemOut, systemTurns: turns, myName: myName)
         try? archive.saveTranscript(segments, for: id)
+        var speakers = labeledSpeakers
+
+        // 2a. Opt-in screenshots: one Claude vision pass over the mid-meeting
+        //    captures reads participant names off the video-call window, covering
+        //    meetings with no calendar invite. Fail-closed — no Claude, no
+        //    screenshots, or a bad reply leaves the pool as calendar attendees.
+        var participantNames = meeting.attendees
+        let screenshots = archive.screenshots(for: id)
+        if !screenshots.isEmpty, ClaudeCLI.isInstalled {
+            onProgress("Reading participant names from screenshots…")
+            participantNames += await ScreenshotAnalyzer.analyze(screenshots: screenshots).participants
+        }
+
+        // 2b. Put participant names on the diarized speakers BEFORE summarizing,
+        //    so the notes are written with real names instead of "Speaker 2".
+        //    The pool is calendar attendees ∪ screenshot names — candidates()
+        //    dedupes case-insensitively and drops the user themself.
+        //    Confidence-gated inside SpeakerNamer: no clear transcript evidence
+        //    (or no model) means no renames, and "me" is never touched.
+        let candidates = SpeakerNamer.candidates(attendees: participantNames, speakers: speakers)
+        if !candidates.isEmpty, speakers.contains(where: { !$0.isMe }) {
+            onProgress("Naming speakers…")
+            let renames = await SpeakerNamer.assign(
+                speakers: speakers,
+                candidates: candidates,
+                transcript: TranscriptFormatter.plainText(segments, speakers: speakers),
+                provider: outcome.summaryProvider ?? "apple")
+            speakers = SpeakerNamer.applying(renames, to: speakers)
+        }
         outcome.speakers = speakers
         var labeled = meeting
         labeled.speakers = speakers
@@ -165,12 +200,14 @@ enum ProcessingPipeline {
 
         // Name the meeting from whatever notes we ended up with — the improvement,
         // the draft it fell back to, or the user's own edit — so a draft-only or
-        // improve-failed meeting still gets a title, not just the happy path.
+        // improve-failed meeting still gets a title, not just the happy path. A
+        // meeting still carrying its calendar title gets that title sanity-checked
+        // against the notes instead (replaced only on a clear mismatch).
         let finalText = archive.summary(for: id)
-        if meeting.calendarEventTitle == nil, !finalText.isEmpty {
+        if titleStep(for: meeting, summary: finalText) != .keep {
             onProgress("Naming the meeting…")
-            outcome.generatedTitle = await generateTitle(
-                summary: finalText, provider: outcome.summaryProvider ?? "apple")
+            outcome.generatedTitle = await resolveTitle(
+                meeting: meeting, summary: finalText, provider: outcome.summaryProvider ?? "apple")
         }
 
         onSummary(.done)
@@ -272,6 +309,94 @@ enum ProcessingPipeline {
         }
         let reason = AppleSummarizer.unavailableReason ?? "Apple Intelligence is unavailable"
         return .failure("\(reason), and Claude Code isn't installed — transcript saved, summary skipped. Fix either one and press Regenerate.")
+    }
+
+    /// What the title step should do once notes exist. Pure decision, so the
+    /// gating is unit-testable without a model.
+    enum TitleStep: Equatable {
+        /// No calendar title — generate one from the notes.
+        case generate
+        /// The meeting still carries its calendar title — sanity-check it against the notes.
+        case check(calendarTitle: String)
+        /// Leave the title alone: no notes, or the user already renamed the meeting.
+        case keep
+    }
+
+    static func titleStep(for meeting: Meeting, summary: String) -> TitleStep {
+        guard !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .keep }
+        guard let calendarTitle = meeting.calendarEventTitle else { return .generate }
+        // Only vet the calendar title while it's still the meeting's title — a user
+        // rename always wins, and `calendarEventTitle` itself is provenance and
+        // never changes.
+        return meeting.title == calendarTitle ? .check(calendarTitle: calendarTitle) : .keep
+    }
+
+    /// Title step for a finished set of notes. Returns a new title, or nil to
+    /// leave the meeting's title as it is.
+    static func resolveTitle(meeting: Meeting, summary: String, provider: String) async -> String? {
+        switch titleStep(for: meeting, summary: summary) {
+        case .generate:
+            return await generateTitle(summary: summary, provider: provider)
+        case .check(let calendarTitle):
+            return await reviseCalendarTitle(calendarTitle, summary: summary, provider: provider)
+        case .keep:
+            return nil
+        }
+    }
+
+    /// Asks the model whether the calendar title actually fits the notes; returns
+    /// a better title only on a clear mismatch (generic busy blocks like "Focus
+    /// Time", or content about something else entirely), nil to keep it. One call
+    /// judges and proposes; same engine order as `generateTitle`.
+    static func reviseCalendarTitle(
+        _ calendarTitle: String, summary: String, provider: String
+    ) async -> String? {
+        if provider == "apple" {
+            do {
+                // do/catch, not try?: a successful "keep" verdict is nil too, and
+                // must not fall through to Claude the way an error does.
+                let verdict = try await AppleSummarizer.reviseTitle(
+                    calendarTitle: calendarTitle, summary: summary)
+                return verdict.flatMap { parseTitleVerdict($0, calendarTitle: calendarTitle) }
+            } catch {}
+        }
+        if ClaudeCLI.isInstalled,
+           let result = try? await ClaudeCLI.run(
+               prompt: titleCheckPrompt(calendarTitle: calendarTitle, summary: summary),
+               model: "haiku"
+           ) {
+            return parseTitleVerdict(result.text, calendarTitle: calendarTitle)
+        }
+        return nil
+    }
+
+    /// Prompt for the calendar-title sanity check (Claude path). The notes are
+    /// untrusted data — ClaudeCLI.run pins `--tools ""`, so there is nothing for
+    /// injected instructions to execute.
+    static func titleCheckPrompt(calendarTitle: String, summary: String) -> String {
+        """
+        A meeting was recorded during a calendar event titled "\(calendarTitle)". Decide whether \
+        that title describes the meeting notes below. Strongly prefer keeping it — replace only \
+        on a CLEAR mismatch, like a generic busy-block name ("Focus Time", "Busy", "Lunch") or \
+        notes plainly about something else. A borderline fit keeps the title.
+
+        Reply with exactly KEEP to keep the title, or with only a specific 3-8 word replacement \
+        title, no quotes.
+
+        Notes:
+
+        \(String(summary.prefix(2000)))
+        """
+    }
+
+    /// Maps the check's reply to an outcome: nil keeps the calendar title (the
+    /// KEEP sentinel, an echo of the same title, or anything malformed); a string
+    /// replaces it.
+    static func parseTitleVerdict(_ response: String, calendarTitle: String) -> String? {
+        guard let title = cleaned(response) else { return nil }
+        if title.caseInsensitiveCompare("KEEP") == .orderedSame { return nil }
+        if title.caseInsensitiveCompare(calendarTitle) == .orderedSame { return nil }
+        return title
     }
 
     static func generateTitle(summary: String, provider: String) async -> String? {

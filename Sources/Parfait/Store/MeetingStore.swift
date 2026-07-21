@@ -60,11 +60,41 @@ final class MeetingStore: ObservableObject {
         try? archive.saveSummary(markdown, for: id)
     }
 
-    /// Rename a speaker everywhere in one meeting.
-    func renameSpeaker(meetingID: UUID, speakerID: String, to newName: String) {
-        guard var m = meeting(id: meetingID) else { return }
-        guard let i = m.speakers.firstIndex(where: { $0.id == speakerID }) else { return }
+    /// Rename a speaker everywhere in one meeting. Returns whether the rename
+    /// actually applied (the speaker existed).
+    @discardableResult
+    func renameSpeaker(meetingID: UUID, speakerID: String, to newName: String) -> Bool {
+        guard var m = meeting(id: meetingID) else { return false }
+        guard let i = m.speakers.firstIndex(where: { $0.id == speakerID }) else { return false }
         m.speakers[i].name = newName
         upsert(m)
+        return true
+    }
+
+    /// Merge one speaker into another: every transcript segment of `fromID` is
+    /// remapped to the survivor and the now-empty speaker entry is removed.
+    /// The survivor keeps `intoID`'s id and name — except that "me" (and its
+    /// isMe flag) always survives a merge, whichever direction it ran.
+    @discardableResult
+    func mergeSpeakers(meetingID: UUID, from fromID: String, into intoID: String) -> Bool {
+        guard fromID != intoID, var m = meeting(id: meetingID),
+              let into = m.speakers.first(where: { $0.id == intoID })
+        else { return false }
+        let from = m.speakers.first(where: { $0.id == fromID })
+        let survivorID = from?.isMe == true ? fromID : intoID
+        let removedID = survivorID == fromID ? intoID : fromID
+        let segments = transcript(for: meetingID).map { segment in
+            var segment = segment
+            if segment.speakerID == removedID { segment.speakerID = survivorID }
+            return segment
+        }
+        saveTranscript(segments, for: meetingID)
+        m.speakers.removeAll { $0.id == removedID }
+        if let i = m.speakers.firstIndex(where: { $0.id == survivorID }) {
+            m.speakers[i].name = into.name
+            m.speakers[i].isMe = from?.isMe == true || into.isMe
+        }
+        upsert(m)
+        return true
     }
 }

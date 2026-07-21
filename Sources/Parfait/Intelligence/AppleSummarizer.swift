@@ -19,6 +19,28 @@ private struct GeneratedTitle {
     var title: String
 }
 
+@Generable
+private struct TitleVerdict {
+    @Guide(description: "Whether the scheduled calendar title describes the meeting content, even loosely. False only on a clear mismatch — a generic busy-block name, or content plainly about something else.")
+    var scheduledTitleFits: Bool
+    @Guide(description: "Specific 3-8 word replacement title from the meeting content, used only when the scheduled title does not fit. Empty when it fits.")
+    var replacementTitle: String
+}
+
+@Generable
+private struct SpeakerMatch {
+    @Guide(description: "A placeholder speaker label exactly as given, e.g. \"Speaker 1\"")
+    var speaker: String
+    @Guide(description: "The attendee this speaker clearly is, copied exactly from the attendee list — empty when the evidence is not clear")
+    var attendee: String
+}
+
+@Generable
+private struct SpeakerAssignments {
+    @Guide(description: "One entry per placeholder speaker label")
+    var matches: [SpeakerMatch]
+}
+
 enum AppleSummarizer {
     static var isAvailable: Bool { SystemLanguageModel.default.isAvailable }
 
@@ -121,13 +143,88 @@ enum AppleSummarizer {
                 generating: GeneratedTitle.self,
                 options: GenerationOptions(temperature: 0.3)
             )
-            var title = response.content.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            title = title.trimmingCharacters(in: CharacterSet(charactersIn: "\"'\u{201C}\u{201D}\u{2018}\u{2019}"))
-            if title.hasSuffix(".") { title = String(title.dropLast()) }
-            return title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return polish(response.content.title)
         } catch {
             throw wrap(error)
         }
+    }
+
+    /// Sanity check for a calendar-sourced title: returns a replacement drawn from
+    /// the summary when the scheduled title clearly doesn't describe the meeting,
+    /// or nil to keep it. Strongly biased toward keeping — only a clear mismatch
+    /// (a generic busy block like "Focus Time", or content about something else
+    /// entirely) replaces.
+    static func reviseTitle(calendarTitle: String, summary: String) async throws -> String? {
+        try ensureAvailable()
+        do {
+            let session = LanguageModelSession(instructions: """
+            You vet meeting titles. A meeting was recorded during a calendar event; decide \
+            whether the event's title describes what was actually discussed. Keep it unless it \
+            CLEARLY does not fit — a generic busy-block name (like "Focus Time", "Busy", or \
+            "Lunch"), or content plainly about something else. When in doubt, keep it.
+            """)
+            let response = try await session.respond(
+                to: "Scheduled title: \(calendarTitle)\n\nMeeting summary:\n\n\(summary)",
+                generating: TitleVerdict.self,
+                options: GenerationOptions(temperature: 0.3)
+            )
+            guard !response.content.scheduledTitleFits else { return nil }
+            let title = polish(response.content.replacementTitle)
+            return title.isEmpty ? nil : title
+        } catch {
+            throw wrap(error)
+        }
+    }
+
+    /// Maps placeholder speaker labels to calendar-attendee names from
+    /// transcript evidence. The caller builds the prompt (labels, candidate
+    /// pool, excerpt) and validates the result; this just runs the structured
+    /// generation. Returns a raw label → name map (empty string = unsure).
+    static func matchSpeakers(prompt: String) async throws -> [String: String] {
+        try ensureAvailable()
+        do {
+            let session = LanguageModelSession(model: transformationModel, instructions: """
+            You identify who is speaking in meeting transcripts. Assign an attendee name to a \
+            placeholder speaker only on clear evidence — a self-introduction, being addressed \
+            by name, or equally unambiguous context. When unsure, leave the name empty.
+            """)
+            let response = try await session.respond(
+                to: prompt,
+                generating: SpeakerAssignments.self,
+                options: GenerationOptions(temperature: 0.3)
+            )
+            return Dictionary(
+                response.content.matches.map { ($0.speaker, $0.attendee) },
+                uniquingKeysWith: { a, _ in a })
+        } catch {
+            throw wrap(error)
+        }
+    }
+
+    /// Targeted transformation of finished notes (speaker-name updates): the
+    /// caller builds the instruction, the notes ride along as input. Single
+    /// shot on purpose — notes that overflow the context window just throw and
+    /// fail over to the caller's Claude path.
+    static func rewriteNotes(prompt: String, notes: String) async throws -> String {
+        try ensureAvailable()
+        do {
+            return try await respondOnce(
+                model: transformationModel,
+                instructions: """
+                You edit finished meeting notes. Apply exactly the change the user asks for \
+                and output ONLY the complete updated markdown — no preamble or commentary.
+                """,
+                prompt: "\(prompt)\n\nNotes:\n\(notes)")
+        } catch {
+            throw wrap(error)
+        }
+    }
+
+    private static func polish(_ raw: String) -> String {
+        var title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        title = title.trimmingCharacters(in: CharacterSet(charactersIn: "\"'\u{201C}\u{201D}\u{2018}\u{2019}"))
+        if title.hasSuffix(".") { title = String(title.dropLast()) }
+        return title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Internals
