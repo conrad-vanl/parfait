@@ -187,6 +187,9 @@ private struct IntelligenceSettings: View {
     @State private var claudeLoggedIn = false
     @State private var ghAvailable = false
     @State private var claudeCodeAvailable = false
+    @State private var pluginStatus: ParfaitPlugin.Status?   // nil = still probing
+    @State private var installingPlugin = false
+    @State private var pluginError: String?
     @AppStorage(SettingsKey.preferClaudeSummaries) private var preferClaudeSummaries = true
 
     var body: some View {
@@ -234,60 +237,50 @@ private struct IntelligenceSettings: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Connect Claude to your meetings") {
+            Section("Parfait plugin for Claude") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Give Claude access to your meeting library so you can ask about your meetings from anywhere. Everything stays local — the connector just reads Parfait's on-disk library.")
-                        .font(.parfait(12))
-
-                    HStack {
-                        Button("Add to Claude Code") { ClaudeCode.addMCPServer(binary: binaryPath) }
-                            .buttonStyle(.borderedProminent)
-                            .tint(Theme.raspberry)
-                        Button("Add to Claude Desktop") {
-                            ClaudeCode.addToClaudeDesktop(
-                                binary: binaryPath, configPath: claudeDesktopConfigURL.path)
+                    HStack(alignment: .firstTextBaseline) {
+                        StatusDot(ok: pluginStatus.map(\.installed))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(pluginStatusTitle).font(.parfait(12, .medium))
+                            Text("Gives Claude your meeting library and the skills to dig into it — in Claude Code and Claude Desktop. Everything stays local.")
+                                .font(.parfait(11))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if installingPlugin {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Button(pluginStatus?.installed == true ? "Update plugin" : "Install plugin") {
+                                installOrUpdatePlugin()
+                            }
+                            .controlSize(.small)
+                            .disabled(!claudeInstalled)
                         }
                     }
-                    .controlSize(.small)
-                    .disabled(!claudeCodeAvailable)
-
-                    Text(claudeCodeAvailable
-                         ? "Claude Code runs the setup for you and confirms it worked."
-                         : "Install Claude Desktop (it includes Claude Code) to use these buttons.")
-                        .font(.parfait(11))
-                        .foregroundStyle(.secondary)
+                    if let pluginError {
+                        Label(pluginError, systemImage: "exclamationmark.triangle")
+                            .font(.parfait(11))
+                            .foregroundStyle(.orange)
+                    }
+                    if !claudeInstalled {
+                        Text("Requires the Claude Code CLI — install it from claude.com/claude-code.")
+                            .font(.parfait(11))
+                            .foregroundStyle(.secondary)
+                    }
 
                     DisclosureGroup("Prefer to run it yourself?") {
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(mcpCommand)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .padding(8)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
-                                Button {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(mcpCommand, forType: .string)
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                                .buttonStyle(.plain)
-                                .help("Copy the claude mcp add command")
-                            }
-                            Text("Or add the \"parfait\" entry to Claude Desktop's config (merge into any existing \"mcpServers\"):")
+                            Text("The plugin starts Parfait's MCP server through this launcher (rewritten on every app launch, so updates never break it):")
                                 .font(.parfait(11))
                                 .foregroundStyle(.secondary)
-                            HStack {
-                                Button("Copy JSON") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(mcpDesktopConfigSnippet, forType: .string)
-                                }
-                                Button("Reveal config in Finder") {
-                                    NSWorkspace.shared.activateFileViewerSelecting([claudeDesktopConfigURL])
-                                }
-                            }
-                            .controlSize(.small)
+                            copyableRow(MCPLauncher.scriptURL.path)
+                            copyableRow("claude plugin marketplace add \(ParfaitPlugin.marketplaceSource)")
+                            copyableRow("claude plugin install \(ParfaitPlugin.installRef)")
+                            Text("No plugin support? Register just the MCP server instead:")
+                                .font(.parfait(11))
+                                .foregroundStyle(.secondary)
+                            copyableRow(legacyMCPCommand)
                         }
                         .padding(.top, 4)
                     }
@@ -302,35 +295,62 @@ private struct IntelligenceSettings: View {
             claudeCodeAvailable = ClaudeCode.isAvailable
             Task.detached {
                 let loggedIn = ClaudeCLI.isLoggedIn()
-                await MainActor.run { claudeLoggedIn = loggedIn }
+                let status = ParfaitPlugin.status()
+                let cliFound = ClaudeCLI.resolveBlocking() != nil
+                await MainActor.run {
+                    claudeLoggedIn = loggedIn
+                    pluginStatus = status
+                    claudeInstalled = cliFound
+                }
             }
         }
     }
 
-    private var binaryPath: String {
-        Bundle.main.executablePath ?? "/Applications/Parfait.app/Contents/MacOS/Parfait"
+    private var pluginStatusTitle: String {
+        guard let pluginStatus else { return "Checking…" }
+        guard pluginStatus.installed else { return "Not installed" }
+        if let version = pluginStatus.version { return "Installed (v\(version))" }
+        return "Installed"
     }
 
-    private var mcpCommand: String {
-        "claude mcp add parfait -s user -- \"\(binaryPath)\" --mcp"
+    private var legacyMCPCommand: String {
+        "claude mcp add parfait -s user -- \"\(MCPLauncher.scriptURL.path)\" --mcp"
     }
 
-    private var mcpDesktopConfigSnippet: String {
-        """
-        {
-          "mcpServers": {
-            "parfait": {
-              "command": "\(binaryPath)",
-              "args": ["--mcp"]
+    private func installOrUpdatePlugin() {
+        installingPlugin = true
+        pluginError = nil
+        let updating = pluginStatus?.installed == true
+        Task.detached {
+            let result = updating ? ParfaitPlugin.update() : ParfaitPlugin.install()
+            let status = ParfaitPlugin.status()
+            await MainActor.run {
+                installingPlugin = false
+                pluginStatus = status
+                if case .failure(let error) = result, updating || !status.installed {
+                    pluginError = error.localizedDescription
+                }
             }
-          }
         }
-        """
     }
 
-    private var claudeDesktopConfigURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json")
+    private func copyableRow(_ text: String) -> some View {
+        HStack {
+            Text(text)
+                .font(.system(size: 11, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.plain)
+            .help("Copy")
+        }
     }
 
     private func statusRow(ok: Bool, title: String, detail: String) -> some View {

@@ -50,7 +50,14 @@ final class MCPServer {
                 ? requested : Self.supportedProtocolVersions[0]
             return encode(resultID: id!, result: [
                 "protocolVersion": version,
-                "capabilities": ["tools": [:] as [String: Any]],
+                "capabilities": [
+                    "tools": [:] as [String: Any],
+                    "resources": [:] as [String: Any],
+                    // MCP Apps (ext-apps 2026-01-26): we serve ui:// HTML resources.
+                    "extensions": [
+                        "io.modelcontextprotocol/ui": ["mimeTypes": [FollowupCard.mimeType]],
+                    ],
+                ] as [String: Any],
                 "serverInfo": ["name": "parfait", "title": "Parfait", "version": Bootstrap.version],
             ])
         case "ping":
@@ -67,16 +74,42 @@ final class MCPServer {
             }
             do {
                 let text = try call(tool: name, arguments: args)
-                return encode(resultID: id!, result: [
+                var result: [String: Any] = [
                     "content": [["type": "text", "text": text]],
                     "isError": false,
-                ])
+                ]
+                // MCP Apps hosts hand structuredContent to the follow-up card
+                // (see FollowupCard); the text envelope stays for text-only hosts.
+                if name == "get_followups", let data = text.data(using: .utf8),
+                   let envelope = try? JSONSerialization.jsonObject(with: data) {
+                    result["structuredContent"] = envelope
+                }
+                return encode(resultID: id!, result: result)
             } catch {
                 return encode(resultID: id!, result: [
                     "content": [["type": "text", "text": "Error: \(error.localizedDescription)"]],
                     "isError": true,
                 ])
             }
+        case "resources/list":
+            return encode(resultID: id!, result: ["resources": [[
+                "uri": FollowupCard.uri,
+                "name": "followup-card",
+                "title": "Follow-up card",
+                "description": "Interactive card for a meeting's follow-ups: renders get_followups results with inline approve/dismiss.",
+                "mimeType": FollowupCard.mimeType,
+            ] as [String: Any]]])
+        case "resources/read":
+            let uri = params["uri"] as? String ?? ""
+            guard uri == FollowupCard.uri else {
+                // -32002: resource not found, per the MCP spec.
+                return encode(errorID: id!, code: -32002, message: "Resource not found: \(uri)")
+            }
+            return encode(resultID: id!, result: ["contents": [[
+                "uri": FollowupCard.uri,
+                "mimeType": FollowupCard.mimeType,
+                "text": FollowupCard.html,
+            ] as [String: Any]]])
         default:
             return encode(errorID: id!, code: -32601, message: "Method not found: \(method)")
         }
@@ -92,6 +125,7 @@ final class MCPServer {
                 "type": "object",
                 "properties": [
                     "limit": ["type": "integer", "description": "Max meetings to return (default 20)"],
+                    "since": ["type": "string", "description": "Only meetings created at or after this ISO8601 date or date-time (e.g. \"2026-07-01\" or \"2026-07-01T09:00:00Z\"). Use for \"what's new since the last dig-in/digest\" queries."],
                 ],
             ] as [String: Any],
         ],
@@ -161,6 +195,76 @@ final class MCPServer {
                     "template": ["type": "string", "description": "Optional template name to summarize with (see list_templates). Defaults to the meeting's current template."],
                 ],
                 "required": ["id"],
+            ] as [String: Any],
+        ],
+        [
+            "name": "get_followups",
+            "description": "Get a meeting's follow-ups (action items, open questions, things to chase) as JSON, by meeting id. Returns {meeting_id, meeting_title, items}; items is [] if none have been saved yet.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "meeting_id": ["type": "string", "description": "Meeting UUID"],
+                ],
+                "required": ["meeting_id"],
+            ] as [String: Any],
+            // MCP Apps: hosts that support ui:// render the follow-up card with
+            // this tool's result instead of the raw JSON text.
+            "_meta": ["ui": ["resourceUri": FollowupCard.uri]] as [String: Any],
+        ],
+        [
+            "name": "save_followups",
+            "description": "Replace a meeting's follow-up list in full. Each item needs a title; kind is action/question/followup (default followup) and status is proposed/approved/in_progress/done/dismissed (default proposed). Pass an item's existing id to keep its identity (and created_at) across saves; omit id for new items. To change one item's status, prefer update_followup_status.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "meeting_id": ["type": "string", "description": "Meeting UUID"],
+                    "items": [
+                        "type": "array",
+                        "description": "The meeting's full follow-up list, replacing whatever was saved before",
+                        "items": [
+                            "type": "object",
+                            "properties": [
+                                "id": ["type": "string", "description": "Existing follow-up UUID to keep; omit for a new item"],
+                                "kind": ["type": "string", "enum": ["action", "question", "followup"]] as [String: Any],
+                                "title": ["type": "string", "description": "Short imperative description, e.g. \"Send Priya the Q3 deck\""],
+                                "owner": ["type": "string", "description": "Who's on the hook (attendee/speaker name)"],
+                                "source_quote": ["type": "string", "description": "Verbatim transcript line it came from"],
+                                "suggested_action": ["type": "string", "description": "Concrete next step, e.g. a draft message"],
+                                "status": ["type": "string", "enum": ["proposed", "approved", "in_progress", "done", "dismissed"]] as [String: Any],
+                                "result_url": ["type": "string", "description": "Link to whatever resolved it"],
+                                "note": ["type": "string"],
+                            ] as [String: Any],
+                            "required": ["title"],
+                        ] as [String: Any],
+                    ] as [String: Any],
+                ] as [String: Any],
+                "required": ["meeting_id", "items"],
+            ] as [String: Any],
+        ],
+        [
+            "name": "update_followup_status",
+            "description": "Update one follow-up's status by meeting id + follow-up id, optionally attaching a note and/or result_url. Use this instead of save_followups when only one item changes.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "meeting_id": ["type": "string", "description": "Meeting UUID"],
+                    "followup_id": ["type": "string", "description": "Follow-up UUID from get_followups"],
+                    "status": ["type": "string", "enum": ["proposed", "approved", "in_progress", "done", "dismissed"], "description": "New status"] as [String: Any],
+                    "note": ["type": "string", "description": "Optional note about the change"],
+                    "result_url": ["type": "string", "description": "Optional link to whatever resolved it"],
+                ] as [String: Any],
+                "required": ["meeting_id", "followup_id", "status"],
+            ] as [String: Any],
+        ],
+        [
+            "name": "publish_meeting",
+            "description": "Publish a meeting's notes and transcript as a styled web page (backed by a secret GitHub gist). Returns the shareable notes.parfait.to link — that's the URL to give the user — plus the underlying gist URL. Anyone with the link can read the page. Requires the GitHub CLI (gh) installed and authenticated.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "meeting_id": ["type": "string", "description": "Meeting UUID"],
+                ],
+                "required": ["meeting_id"],
             ] as [String: Any],
         ],
         [
@@ -251,9 +355,18 @@ final class MCPServer {
         switch tool {
         case "list_meetings":
             let limit = arguments["limit"] as? Int ?? 20
-            let meetings = archive.allMeetings().prefix(max(1, limit))
-            if meetings.isEmpty { return "No meetings recorded yet." }
-            return meetings.map(Self.describe).joined(separator: "\n")
+            var meetings = archive.allMeetings()
+            if let sinceString = arguments["since"] as? String, !sinceString.isEmpty {
+                guard let since = Self.parseISODate(sinceString) else {
+                    throw ToolError.badArgument(
+                        "'since' must be an ISO8601 date or date-time, e.g. \"2026-07-01\" or \"2026-07-01T09:00:00Z\"")
+                }
+                meetings = meetings.filter { $0.createdAt >= since }
+                if meetings.isEmpty { return "No meetings since \(sinceString)." }
+            }
+            let page = meetings.prefix(max(1, limit))
+            if page.isEmpty { return "No meetings recorded yet." }
+            return page.map(Self.describe).joined(separator: "\n")
 
         case "search_meetings":
             guard let query = arguments["query"] as? String, !query.isEmpty else {
@@ -297,6 +410,74 @@ final class MCPServer {
 
         case "regenerate_summary":
             return try regenerateSummary(meeting: try meetingArg(arguments), arguments: arguments)
+
+        case "get_followups":
+            let meeting = try meetingArg(arguments)
+            return Self.followupsJSON(meeting: meeting, items: archive.followups(for: meeting.id))
+
+        case "save_followups":
+            let meeting = try meetingArg(arguments)
+            guard let rawItems = arguments["items"] as? [[String: Any]] else {
+                throw ToolError.badArgument("'items' must be an array of follow-up objects")
+            }
+            let existing = Dictionary(
+                uniqueKeysWithValues: archive.followups(for: meeting.id).map { ($0.id, $0) })
+            let now = Date()
+            let items = try rawItems.map { raw -> Followup in
+                guard let title = raw["title"] as? String, !title.isEmpty else {
+                    throw ToolError.badArgument("Every follow-up item needs a 'title'")
+                }
+                let kindString = raw["kind"] as? String ?? "followup"
+                guard let kind = Followup.Kind(rawValue: kindString) else {
+                    throw ToolError.badArgument(
+                        "Invalid kind '\(kindString)' — use action, question, or followup")
+                }
+                let statusString = raw["status"] as? String ?? "proposed"
+                guard let status = Followup.Status(rawValue: statusString) else {
+                    throw ToolError.badArgument(
+                        "Invalid status '\(statusString)' — use proposed, approved, in_progress, done, or dismissed")
+                }
+                let id = (raw["id"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID()
+                return Followup(
+                    id: id, kind: kind, title: title,
+                    owner: raw["owner"] as? String,
+                    sourceQuote: raw["source_quote"] as? String,
+                    suggestedAction: raw["suggested_action"] as? String,
+                    status: status,
+                    resultURL: raw["result_url"] as? String,
+                    note: raw["note"] as? String,
+                    createdAt: existing[id]?.createdAt ?? now,
+                    updatedAt: now)
+            }
+            try archive.saveFollowups(items, for: meeting.id)
+            return "Saved \(items.count) follow-up\(items.count == 1 ? "" : "s") for \"\(meeting.title)\"."
+
+        case "update_followup_status":
+            let meeting = try meetingArg(arguments)
+            guard let idString = arguments["followup_id"] as? String,
+                  let followupID = UUID(uuidString: idString)
+            else {
+                throw ToolError.badArgument("'followup_id' must be a follow-up UUID")
+            }
+            guard let statusString = arguments["status"] as? String,
+                  let status = Followup.Status(rawValue: statusString)
+            else {
+                throw ToolError.badArgument(
+                    "'status' must be one of proposed, approved, in_progress, done, dismissed")
+            }
+            var items = archive.followups(for: meeting.id)
+            guard let i = items.firstIndex(where: { $0.id == followupID }) else {
+                throw ToolError.badArgument("No follow-up with id \(idString) in \"\(meeting.title)\"")
+            }
+            items[i].status = status
+            if let note = arguments["note"] as? String { items[i].note = note }
+            if let url = arguments["result_url"] as? String { items[i].resultURL = url }
+            items[i].updatedAt = Date()
+            try archive.saveFollowups(items, for: meeting.id)
+            return "\"\(items[i].title)\" is now \(status.rawValue)."
+
+        case "publish_meeting":
+            return try publishMeeting(meeting: try meetingArg(arguments))
 
         case "list_templates":
             let all = templates.list()
@@ -350,9 +531,12 @@ final class MCPServer {
         }
     }
 
+    /// Newer tools take `meeting_id`; the original tools took `id`. Accept both everywhere.
     private func meetingArg(_ arguments: [String: Any]) throws -> Meeting {
-        guard let idString = arguments["id"] as? String, let id = UUID(uuidString: idString) else {
-            throw ToolError.badArgument("'id' must be a meeting UUID")
+        guard let idString = (arguments["meeting_id"] ?? arguments["id"]) as? String,
+              let id = UUID(uuidString: idString)
+        else {
+            throw ToolError.badArgument("'meeting_id' must be a meeting UUID")
         }
         guard let meeting = archive.meeting(id: id) else { throw ToolError.notFound(idString) }
         return meeting
@@ -397,6 +581,48 @@ final class MCPServer {
         }
     }
 
+    /// Mirrors MeetingDetailView.publish(): render the page, upload as a secret
+    /// gist via gh, persist the rendered URL. Same `blockingAwait` bridge as
+    /// regenerateSummary — Claude expects the tool call to block until the link exists.
+    private func publishMeeting(meeting: Meeting) throws -> String {
+        let summary = archive.summary(for: meeting.id)
+        guard !summary.isEmpty else {
+            throw ToolError.badArgument("This meeting has no notes yet.")
+        }
+        guard GitHubGist.isAvailable else {
+            throw ToolError.badArgument(
+                "Publishing requires the GitHub CLI (gh). Install it (brew install gh), run gh auth login, and try again.")
+        }
+        let html = HTMLExporter.html(
+            meeting: meeting, summaryMarkdown: summary, segments: archive.transcript(for: meeting.id))
+        let title = meeting.title
+        let outcome: Result<(gist: URL, rendered: URL), Error> = blockingAwait {
+            do {
+                return .success(try await GitHubGist.publish(
+                    html: html, filename: "meeting.html",
+                    description: "Parfait meeting notes — \(title)"))
+            } catch {
+                return .failure(error)
+            }
+        }
+        switch outcome {
+        case .success(let urls):
+            // Re-fetch: the upload took a while and the meeting may have been
+            // edited (or deleted — then don't resurrect it) meanwhile.
+            if var fresh = archive.meeting(id: meeting.id) {
+                fresh.publishedURL = urls.rendered.absoluteString
+                try? archive.save(fresh)
+            }
+            return """
+            Published "\(title)".
+            Shareable link (give the user this one): \(urls.rendered.absoluteString)
+            Underlying gist: \(urls.gist.absoluteString)
+            """
+        case .failure(let error):
+            throw ToolError.badArgument(error.localizedDescription)
+        }
+    }
+
     /// Runs an async operation to completion on a background task and blocks the
     /// calling (MCP request-loop) thread until it finishes.
     private func blockingAwait<T: Sendable>(_ operation: @escaping @Sendable () async -> T) -> T {
@@ -413,6 +639,57 @@ final class MCPServer {
 
     private final class ResultBox<T>: @unchecked Sendable {
         var value: T?
+    }
+
+    // ISO8601 in the shapes Claude plausibly passes: fractional-second and plain
+    // date-times, plus bare dates ("2026-07-01").
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
+    private static let isoDateOnly: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate]
+        return f
+    }()
+
+    static func parseISODate(_ string: String) -> Date? {
+        isoFractional.date(from: string)
+            ?? isoPlain.date(from: string)
+            ?? isoDateOnly.date(from: string)
+    }
+
+    /// Pretty-printed JSON envelope for get_followups. Keys are snake_case (the
+    /// tool contract) even though the on-disk Codable keys are camelCase; nil
+    /// fields are omitted.
+    private static func followupsJSON(meeting: Meeting, items: [Followup]) -> String {
+        let encoded: [[String: Any]] = items.map { f in
+            var d: [String: Any] = [
+                "id": f.id.uuidString,
+                "kind": f.kind.rawValue,
+                "title": f.title,
+                "status": f.status.rawValue,
+                "created_at": isoFractional.string(from: f.createdAt),
+                "updated_at": isoFractional.string(from: f.updatedAt),
+            ]
+            if let v = f.owner { d["owner"] = v }
+            if let v = f.sourceQuote { d["source_quote"] = v }
+            if let v = f.suggestedAction { d["suggested_action"] = v }
+            if let v = f.resultURL { d["result_url"] = v }
+            if let v = f.note { d["note"] = v }
+            return d
+        }
+        let envelope: [String: Any] = [
+            "meeting_id": meeting.id.uuidString,
+            "meeting_title": meeting.title,
+            "items": encoded,
+        ]
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: envelope, options: [.prettyPrinted, .sortedKeys])
+        else { return "{}" }
+        return String(data: data, encoding: .utf8)!
     }
 
     private static func describeTemplate(_ t: SummaryTemplate) -> String {

@@ -49,41 +49,6 @@ final class ClaudeDesktopTests: XCTestCase {
         XCTAssertEqual(url?.query, "q=")
     }
 
-    func testMeetingPromptCarriesTitleIdAndQuestion() {
-        let id = UUID()
-        let prompt = ClaudeDesktopPrompt.meeting(id: id, title: "Roadmap sync", question: "What did we decide?")
-        XCTAssertTrue(prompt.contains("Parfait meeting"))
-        XCTAssertTrue(prompt.contains("Roadmap sync"))
-        XCTAssertTrue(prompt.contains(id.uuidString))
-        XCTAssertTrue(prompt.contains("What did we decide?"))
-    }
-
-    func testMeetingPromptFallsBackOnEmptyQuestion() {
-        let prompt = ClaudeDesktopPrompt.meeting(id: UUID(), title: "1:1", question: "   ")
-        XCTAssertFalse(prompt.contains("Question: \n"))
-        XCTAssertTrue(prompt.contains("overview"))
-    }
-
-    func testLibraryPromptCarriesQuestion() {
-        let prompt = ClaudeDesktopPrompt.library(question: "When did I last talk about hiring?")
-        XCTAssertTrue(prompt.contains("Parfait meetings"))
-        XCTAssertTrue(prompt.contains("When did I last talk about hiring?"))
-    }
-
-    func testLibraryPromptFallsBackOnEmptyQuestion() {
-        let prompt = ClaudeDesktopPrompt.library(question: "")
-        XCTAssertTrue(prompt.contains("talking about"))
-    }
-
-    func testLivePromptDefaultsAndCarriesQuestion() {
-        XCTAssertEqual(
-            ClaudeDesktopPrompt.live(question: ""),
-            "I'm in a Parfait meeting happening right now — What's being discussed, and is there anything I should add or ask?")
-        XCTAssertEqual(
-            ClaudeDesktopPrompt.live(question: "Summarize the last 5 minutes"),
-            "I'm in a Parfait meeting happening right now — Summarize the last 5 minutes")
-    }
-
     // MARK: - ClaudeCode (claude://code/new) deep links
 
     func testCodeSessionURLSchemeHostPath() {

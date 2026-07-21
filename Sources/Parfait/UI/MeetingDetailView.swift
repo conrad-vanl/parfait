@@ -18,7 +18,6 @@ struct MeetingDetailView: View {
     enum Tab: String, CaseIterable {
         case notes = "Notes"
         case transcript = "Transcript"
-        case ask = "Ask Claude"
     }
 
     enum PublishState: Equatable {
@@ -61,6 +60,17 @@ struct MeetingDetailView: View {
                     .onSubmit(saveTitle)
                     .onChange(of: isEditingTitle) { if !isEditingTitle { saveTitle() } }
                 Spacer()
+                if meeting.state == .ready {
+                    Button {
+                        ClaudeLink.open(prompt: ClaudeLink.meetingPrompt(
+                            meetingID: meeting.id, title: meeting.title))
+                    } label: {
+                        Label("Open in Claude", systemImage: "sparkles")
+                            .font(.parfait(13, .medium))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Ask Claude about this meeting")
+                }
                 publishMenu
             }
 
@@ -134,7 +144,7 @@ struct MeetingDetailView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 340, alignment: .leading)
+            .frame(maxWidth: 240, alignment: .leading)
             .padding(.top, 6)
         }
     }
@@ -184,8 +194,6 @@ struct MeetingDetailView: View {
             NotesTab(meeting: meeting, draft: $notesDraft)
         case .transcript:
             TranscriptTab(meeting: meeting, draft: $transcriptDraft)
-        case .ask:
-            MeetingLauncherView(meeting: meeting)
         }
     }
 

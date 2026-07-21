@@ -6,6 +6,7 @@ import Foundation
 ///         meeting.json      Meeting
 ///         transcript.json   [TranscriptSegment]
 ///         summary.md        markdown
+///         followups.json    [Followup], written by Claude via MCP
 ///         mic.m4a           the user's microphone
 ///         system.m4a        everyone else (process tap)
 ///         screenshots/      opt-in mid-meeting captures; deleted after processing
@@ -201,6 +202,29 @@ final class MeetingArchive: @unchecked Sendable {
         try queue.sync {
             try markdown.data(using: .utf8)!
                 .write(to: folder(for: id).appendingPathComponent("summary.md"), options: .atomic)
+        }
+    }
+
+    // MARK: - Followups (written by Claude via MCP; the app only reads)
+
+    func followups(for id: UUID) -> [Followup] {
+        queue.sync {
+            guard let data = try? Data(contentsOf: folder(for: id).appendingPathComponent("followups.json"))
+            else { return [] }
+            return (try? decoder.decode([Followup].self, from: data)) ?? []
+        }
+    }
+
+    /// Same deleted-meeting guard as `save(_:)`: refusing to recreate the folder
+    /// keeps a Claude session writing followups from resurrecting a deleted meeting.
+    func saveFollowups(_ items: [Followup], for id: UUID) throws {
+        try queue.sync {
+            let dir = folder(for: id)
+            guard FileManager.default.fileExists(atPath: dir.path) else {
+                throw ArchiveError.meetingDeleted
+            }
+            let data = try encoder.encode(items)
+            try data.write(to: dir.appendingPathComponent("followups.json"), options: .atomic)
         }
     }
 

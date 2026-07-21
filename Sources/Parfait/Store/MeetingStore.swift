@@ -56,6 +56,8 @@ final class MeetingStore: ObservableObject {
 
     func summary(for id: UUID) -> String { archive.summary(for: id) }
 
+    func followups(for id: UUID) -> [Followup] { archive.followups(for: id) }
+
     func saveSummary(_ markdown: String, for id: UUID) {
         try? archive.saveSummary(markdown, for: id)
     }

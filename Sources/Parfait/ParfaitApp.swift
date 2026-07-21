@@ -58,6 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingCard: RecordingCardController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Refresh the plugin's launcher before onboarding can run an install —
+        // the script must always exec the binary the user is currently running.
+        MCPLauncher.writeLauncherScript()
         Task { @MainActor in AppState.shared.bootstrap() }
         observeWindowsForMenuBar()
         // The floating "Record this meeting?" card on detection, and the live

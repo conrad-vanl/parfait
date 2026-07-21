@@ -11,8 +11,10 @@ struct OnboardingView: View {
     @State private var micStatus = MicRecorder.permissionGranted
     @State private var calendarStatus = CalendarMatcher.isAuthorized
     @State private var claudeInstalled = ClaudeCLI.isInstalled
-    @State private var claudeLoggedIn = false
-    @State private var claudeDesktopInstalled = ClaudeDesktop.isInstalled
+    @State private var claudeCodeAvailable = ClaudeCode.isAvailable
+    @State private var pluginStatus: ParfaitPlugin.Status?   // nil = still probing
+    @State private var installingPlugin = false
+    @State private var pluginError: String?
     @State private var ghAvailable = false
 
     var body: some View {
@@ -32,8 +34,7 @@ struct OnboardingView: View {
                     systemAudioRow
                     notificationsRow
                     calendarRow
-                    claudeRow
-                    claudeDesktopRow
+                    claudePluginRow
                     githubRow
                 }
                 .padding(.horizontal, 24)
@@ -55,12 +56,17 @@ struct OnboardingView: View {
             micStatus = MicRecorder.permissionGranted
             calendarStatus = CalendarMatcher.isAuthorized
             claudeInstalled = ClaudeCLI.isInstalled
-            claudeDesktopInstalled = ClaudeDesktop.isInstalled
+            claudeCodeAvailable = ClaudeCode.isAvailable
             Task { await app.refreshNotificationStatus() }
             Task.detached {
-                let loggedIn = ClaudeCLI.isLoggedIn()
-                let gh = GitHubGist.isAvailable // shells out; keep off-main here
-                await MainActor.run { claudeLoggedIn = loggedIn; ghAvailable = gh }
+                let status = ParfaitPlugin.status() // shells out; keep off-main here
+                let cliFound = ClaudeCLI.resolveBlocking() != nil
+                let gh = GitHubGist.isAvailable
+                await MainActor.run {
+                    pluginStatus = status
+                    claudeInstalled = cliFound
+                    ghAvailable = gh
+                }
             }
         }
     }
@@ -136,33 +142,41 @@ struct OnboardingView: View {
         }
     }
 
-    private var claudeRow: some View {
+    private var claudePluginRow: some View {
         OnboardingStepRow(
-            icon: "sparkles", title: "Claude access", required: false,
-            detail: claudeInstalled
-                ? (claudeLoggedIn ? "Connected — unlocks long-meeting summaries." : "Installed but not logged in — open Claude Code and log in once.")
-                : "Optional — unlocks long-meeting summaries, billed to your own Claude plan.",
-            ok: claudeInstalled && claudeLoggedIn
+            icon: "sparkles", title: "Claude plugin", required: false,
+            detail: pluginError.map { "Install failed: \($0)" }
+                ?? (pluginStatus?.installed == true
+                    ? "Installed — ask Claude to dig into any of your meetings."
+                    : "Install the Parfait plugin so Claude can dig into your meetings."),
+            ok: pluginStatus.map(\.installed) // neutral while probing
         ) {
-            if !claudeInstalled {
-                Button("Learn more") { NSWorkspace.shared.open(URL(string: "https://claude.com/claude-code")!) }
-                    .controlSize(.small)
+            if installingPlugin {
+                ProgressView().controlSize(.small)
+            } else if pluginStatus?.installed != true {
+                if claudeInstalled {
+                    Button("Install plugin") { installPlugin() }
+                        .controlSize(.small)
+                } else {
+                    Button("Get Claude Code") { NSWorkspace.shared.open(URL(string: "https://claude.com/claude-code")!) }
+                        .controlSize(.small)
+                }
             }
         }
     }
 
-    private var claudeDesktopRow: some View {
-        OnboardingStepRow(
-            icon: "message.badge.filled.fill", title: "Claude Desktop", required: false,
-            detail: claudeDesktopInstalled
-                ? "Installed — Chat and \"Ask your meetings\" open here. Add the parfait connector in Settings → Connect Claude if you haven't."
-                : "Required for chat — Parfait's Chat and \"Ask your meetings\" screens open a pre-filled prompt in Claude Desktop.",
-            ok: claudeDesktopInstalled
-        ) {
-            if !claudeDesktopInstalled {
-                Button("Get Claude Desktop") {
-                    NSWorkspace.shared.open(URL(string: "https://claude.ai/download")!)
-                }.controlSize(.small)
+    private func installPlugin() {
+        installingPlugin = true
+        pluginError = nil
+        Task.detached {
+            let result = ParfaitPlugin.install()
+            let status = ParfaitPlugin.status()
+            await MainActor.run {
+                installingPlugin = false
+                pluginStatus = status
+                if case .failure(let error) = result, !status.installed {
+                    pluginError = error.localizedDescription
+                }
             }
         }
     }
@@ -176,7 +190,7 @@ struct OnboardingView: View {
             if !ghAvailable {
                 Button("Set it up with Claude") { ClaudeCode.setUpGitHubCLI() }
                     .controlSize(.small)
-                    .disabled(!claudeDesktopInstalled)
+                    .disabled(!claudeCodeAvailable)
             }
         }
     }

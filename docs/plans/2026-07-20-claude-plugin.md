@@ -1,7 +1,11 @@
 # Parfait as a Claude plugin — design (2026-07-20)
 
-> Status: DESIGN — reviewed by Conrad 2026-07-20; open questions resolved
-> (see Decisions at bottom). Ready for phase-1 implementation on go-ahead.
+> Status: SHIPPED — all three phases implemented 2026-07-20 (plugin + dig-in +
+> followups + handoff; scoop/digest/publish/surface cleanup; MCP Apps
+> follow-up card). 202 tests green; plugin validated (`--strict`), installed
+> and connected end-to-end via the launcher script. Implementation notes:
+> slash commands are namespaced (`/parfait:dig-in`), the marketplace manifest
+> lives at the repo root, and `.mcp.json` uses `${HOME}` (no tilde expansion).
 > Supersedes the "post-meeting AI follow-ups" section of the 2026-07-20
 > improvements plan (which stayed deliberately in discussion).
 

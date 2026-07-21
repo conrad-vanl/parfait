@@ -1,7 +1,6 @@
 import SwiftUI
 
 enum SidebarItem: Hashable {
-    case library
     case meeting(UUID)
 }
 
@@ -17,6 +16,14 @@ struct MainWindowView: View {
                 .navigationSplitViewColumnWidth(min: 230, ideal: 270)
         } detail: {
             detail
+        }
+        .toolbar {
+            Button {
+                ClaudeLink.open(prompt: ClaudeLink.libraryPrompt())
+            } label: {
+                Label("Ask Claude", systemImage: "sparkles")
+            }
+            .help("Ask Claude across your whole meeting library")
         }
         .background(Theme.surface(scheme))
         .onAppear { adoptPendingSelection() }
@@ -44,11 +51,6 @@ struct MainWindowView: View {
 
     private var sidebar: some View {
         List(selection: $selection) {
-            Section {
-                Label("Ask your meetings", systemImage: "bubble.left.and.text.bubble.right")
-                    .font(.parfait(13, .medium))
-                    .tag(SidebarItem.library)
-            }
             Section("Meetings") {
                 ForEach(filtered) { meeting in
                     MeetingRow(meeting: meeting, stage: app.processingStage[meeting.id])
@@ -77,8 +79,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detail: some View {
         switch selection {
-        case .library:
-            LibraryLauncherView()
         case .meeting(let id):
             if let meeting = app.store.meetings.first(where: { $0.id == id }) {
                 MeetingDetailView(meeting: meeting)

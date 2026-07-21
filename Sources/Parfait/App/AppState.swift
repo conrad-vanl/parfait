@@ -538,6 +538,13 @@ final class AppState: NSObject, ObservableObject {
         guard Bundle.main.bundleIdentifier != nil else { return } // bare `swift run` has no bundle
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        // "Notes ready" carries a Dig-in action so the handoff to Claude is one click
+        // from the banner.
+        let digIn = UNNotificationAction(identifier: "dig-in", title: "Dig in with Claude", options: [])
+        center.setNotificationCategories([
+            UNNotificationCategory(identifier: "meeting-ready", actions: [digIn],
+                                   intentIdentifiers: [], options: [])
+        ])
         // Meeting detection is surfaced by the floating card + chime + menu-bar glyph, not a
         // notification (that only buried the prompt in Notification Center). The only notification
         // left is "notes are ready", so we just need alert+sound authorization for that.
@@ -579,7 +586,8 @@ final class AppState: NSObject, ObservableObject {
         guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = meeting.title
-        content.body = "Your meeting notes are ready."
+        content.body = "Notes ready — dig in with Claude."
+        content.categoryIdentifier = "meeting-ready"
         let request = UNNotificationRequest(
             identifier: "ready-\(meeting.id)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
@@ -596,9 +604,16 @@ extension AppState: UNUserNotificationCenterDelegate {
         let identifier = response.notification.request.identifier
         guard identifier.hasPrefix("ready-"),
               let id = UUID(uuidString: String(identifier.dropFirst("ready-".count))) else { return }
+        let action = response.actionIdentifier
         await MainActor.run {
-            AppState.shared.openMeetingID = id
-            NSApp.activate()
+            if action == "dig-in" {
+                let title = AppState.shared.store.meeting(id: id)?.title ?? "Meeting"
+                ClaudeLink.openDigIn(meetingID: id, title: title)
+            } else if action == UNNotificationDefaultActionIdentifier {
+                AppState.shared.openMeetingID = id
+                NSApp.activate()
+            }
+            // Dismissal (or any future action) must not steal focus.
         }
     }
 

@@ -44,6 +44,40 @@ struct Meeting: Codable, Identifiable, Equatable, Sendable {
     var summaryProvider: String?
 }
 
+/// A commitment extracted from a meeting: an action item, open question, or
+/// thing to chase. Written by Claude over MCP (save_followups); the app only
+/// stores and displays them.
+struct Followup: Codable, Identifiable, Equatable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case action
+        case question
+        case followup
+    }
+
+    enum Status: String, Codable, Sendable {
+        case proposed
+        case approved
+        case inProgress = "in_progress"
+        case done
+        case dismissed
+    }
+
+    var id: UUID
+    var kind: Kind
+    var title: String
+    /// Who's on the hook — an attendee/speaker name, or nil when unassigned.
+    var owner: String?
+    /// Verbatim transcript line the item was extracted from.
+    var sourceQuote: String?
+    var suggestedAction: String?
+    var status: Status
+    /// Link to whatever resolved the item (PR, doc, sent email…).
+    var resultURL: String?
+    var note: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
 extension Meeting {
     static func placeholderTitle(for date: Date) -> String {
         let f = DateFormatter()

@@ -109,7 +109,7 @@ final class RecordingCardController {
             shownID = session.meetingID
             let host = NSHostingController(rootView: RecordingCardView(
                 session: session,
-                onAsk: { _ = ClaudeDesktop.openNewChat(prompt: ClaudeDesktopPrompt.live(question: "")) },
+                onAsk: { ClaudeLink.open(prompt: ClaudeLink.livePrompt()) },
                 onClose: { AppState.shared.recordingCardDismissed = true },
                 onStop: { Task { await AppState.shared.stopRecording() } }))
             panel.contentViewController = host
@@ -176,6 +176,17 @@ private struct DetectionPromptView: View {
                     .font(.parfait(13))
                     .buttonStyle(.bordered)
             }
+            // Detection has no calendar match yet (that happens at record time),
+            // so the scoop skill finds the upcoming event itself.
+            Button {
+                ClaudeLink.openScoop(eventTitle: nil)
+            } label: {
+                Label("Get the scoop", systemImage: "sparkles")
+                    .font(.parfait(11, .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Have Claude brief you before this meeting")
         }
         .padding(16)
         .frame(width: 300, alignment: .leading)
