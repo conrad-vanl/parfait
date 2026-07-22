@@ -7,6 +7,7 @@ import worker, {
   hasGeneratorMarker,
   SECURITY_HEADERS,
   isBlocked,
+  PAGE_URL_MARKER,
 } from '../src/index.js';
 
 // ---------------------------------------------------------------------------
@@ -389,6 +390,33 @@ describe('handler', () => {
     const res = await worker.fetch(req, {}, ctx);
     restoreFetch();
     assert.equal(res.status, 200);
+  });
+
+  test('PAGE_URL_MARKER is replaced with the encoded page URL everywhere in the body', async () => {
+    const extra =
+      `<a href="https://claude.ai/new?q=notes%20at%20${PAGE_URL_MARKER}%20end">Hand to Claude</a>` +
+      `<p>${PAGE_URL_MARKER}</p>`;
+    restoreFetch = installFetchStub(async () => fakeUpstream(200, realisticDoc({ extra })));
+    const { ctx } = makeCtx();
+    const path = pathFor(USER, GIST_32, SHA_40, FILENAME);
+    const res = await worker.fetch(makeRequest(path), {}, ctx);
+    restoreFetch();
+
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    const expected = encodeURIComponent(`https://notes.parfait.to${path}`);
+    assert.ok(!body.includes(PAGE_URL_MARKER), 'marker must not survive serving');
+    assert.ok(body.includes(`q=notes%20at%20${expected}%20end`), 'href carries the encoded page URL');
+  });
+
+  test('marker-free body is served byte-identical', async () => {
+    const doc = realisticDoc();
+    restoreFetch = installFetchStub(async () => fakeUpstream(200, doc));
+    const { ctx } = makeCtx();
+    const res = await worker.fetch(makeRequest(pathFor(USER, GIST_32, SHA_40, FILENAME)), {}, ctx);
+    restoreFetch();
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), doc);
   });
 
   test('marker gate: absent fails (403)', async () => {

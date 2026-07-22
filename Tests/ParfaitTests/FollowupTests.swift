@@ -23,11 +23,11 @@ final class FollowupTests: XCTestCase {
     }
 
     // Whole-second dates so the ISO8601 encoding round-trips exactly for Equatable.
-    private func makeFollowup(title: String) -> Followup {
+    private func makeFollowup(title: String, owner: String? = "Me") -> Followup {
         let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded())
         return Followup(
             id: UUID(), kind: .action, title: title,
-            owner: "Me", sourceQuote: "I'll send the deck", suggestedAction: "Email the Q3 deck",
+            owner: owner, sourceQuote: "I'll send the deck", suggestedAction: "Email the Q3 deck",
             status: .proposed, resultURL: nil, note: nil,
             createdAt: now, updatedAt: now)
     }
@@ -68,6 +68,58 @@ final class FollowupTests: XCTestCase {
         XCTAssertEqual(all.map(\.meeting.id), [meeting.id, old.id])
         XCTAssertEqual(all[0].items.map(\.title), ["Send deck"])
         XCTAssertEqual(all[1].items.map(\.title), ["Chase invoice"])
+    }
+
+    func testIsMineMatchesMeAndOwnNameInAnyCasing() {
+        let name = "Pat Tester"
+        XCTAssertTrue(makeFollowup(title: "x", owner: "me").isMine(myName: name))
+        XCTAssertTrue(makeFollowup(title: "x", owner: "Me").isMine(myName: name))
+        XCTAssertTrue(makeFollowup(title: "x", owner: "ME").isMine(myName: name))
+        XCTAssertTrue(makeFollowup(title: "x", owner: "Pat Tester").isMine(myName: name))
+        XCTAssertTrue(makeFollowup(title: "x", owner: "pat tester").isMine(myName: name))
+        XCTAssertTrue(makeFollowup(title: "x", owner: "  me  ").isMine(myName: name))
+        XCTAssertFalse(makeFollowup(title: "x", owner: "Alice").isMine(myName: name))
+        XCTAssertFalse(makeFollowup(title: "x", owner: nil).isMine(myName: name))
+        XCTAssertFalse(makeFollowup(title: "x", owner: "   ").isMine(myName: name))
+    }
+
+    func testInvolvesMeIncludesUnassigned() {
+        let name = "Pat Tester"
+        XCTAssertTrue(makeFollowup(title: "x", owner: nil).involvesMe(myName: name))
+        XCTAssertTrue(makeFollowup(title: "x", owner: "   ").involvesMe(myName: name))
+        XCTAssertTrue(makeFollowup(title: "x", owner: "me").involvesMe(myName: name))
+        XCTAssertTrue(makeFollowup(title: "x", owner: "Pat Tester").involvesMe(myName: name))
+        XCTAssertFalse(makeFollowup(title: "x", owner: "Alice").involvesMe(myName: name))
+    }
+
+    func testLocalUserNamePrefersIsMeSpeaker() {
+        var m = Meeting(title: "t", createdAt: Date())
+        m.speakers = [
+            Speaker(id: "s1", name: "Priya"),
+            Speaker(id: "me", name: "Pat Tester", isMe: true),
+        ]
+        XCTAssertEqual(m.localUserName(fallback: "Fallback Name"), "Pat Tester")
+
+        m.speakers = [Speaker(id: "s1", name: "Priya")]
+        XCTAssertEqual(m.localUserName(fallback: "Fallback Name"), "Fallback Name")
+
+        m.speakers = [Speaker(id: "me", name: "", isMe: true)]
+        XCTAssertEqual(m.localUserName(fallback: "Fallback Name"), "Fallback Name")
+    }
+
+    @MainActor
+    func testStoreBadgeCountsOnlyMineAndUnassigned() throws {
+        var m = meeting!
+        m.speakers = [Speaker(id: "me", name: "Pat Tester", isMe: true)]
+        try archive.save(m)
+        try archive.saveFollowups([
+            makeFollowup(title: "Mine", owner: "me"),
+            makeFollowup(title: "Someone else's", owner: "Alice"),
+            makeFollowup(title: "Unassigned", owner: nil),
+        ], for: m.id)
+
+        let store = MeetingStore(archive: archive)
+        XCTAssertEqual(store.openFollowupCount, 2)
     }
 
     func testSaveOnDeletedMeetingThrows() throws {

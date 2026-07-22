@@ -21,12 +21,15 @@ final class MeetingStore: ObservableObject {
         refreshFollowupCount()
     }
 
-    /// Recount open follow-ups from disk. Call after anything that may have
-    /// written a followups.json (in-app edit, pipeline extraction, MCP process
-    /// while the app was inactive).
+    /// Recount open follow-ups from disk — only the user's own and unassigned
+    /// items; the badge is a personal to-do count. Call after anything that
+    /// may have written a followups.json (in-app edit, pipeline extraction,
+    /// MCP process while the app was inactive).
     func refreshFollowupCount() {
-        openFollowupCount = archive.allFollowups()
-            .reduce(0) { $0 + $1.items.filter(\.isOpen).count }
+        openFollowupCount = archive.allFollowups().reduce(0) { total, entry in
+            let myName = entry.meeting.localUserName()
+            return total + entry.items.filter { $0.isOpen && $0.involvesMe(myName: myName) }.count
+        }
     }
 
     func meeting(id: UUID) -> Meeting? {

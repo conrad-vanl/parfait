@@ -205,6 +205,7 @@ final class MCPServer {
                 "type": "object",
                 "properties": [
                     "meeting_id": ["type": "string", "description": "Meeting UUID"],
+                    "mine": ["type": "boolean", "description": "Only items for the local user — owned by them (owner \"me\" or their name) or unassigned"],
                 ],
                 "required": ["meeting_id"],
             ] as [String: Any],
@@ -220,6 +221,7 @@ final class MCPServer {
                 "properties": [
                     "status": ["type": "string", "enum": ["open", "proposed", "approved", "in_progress", "done", "dismissed"], "description": "Only items with this status; \"open\" means proposed, approved, or in_progress. Omit for all."] as [String: Any],
                     "since": ["type": "string", "description": "Only meetings created at or after this ISO8601 date or date-time (e.g. \"2026-07-01\" or \"2026-07-01T09:00:00Z\")."],
+                    "mine": ["type": "boolean", "description": "Only items for the local user — owned by them (owner \"me\" or their name) or unassigned"],
                 ] as [String: Any],
             ] as [String: Any],
             // MCP Apps: the follow-up card renders this tool's result too
@@ -431,7 +433,12 @@ final class MCPServer {
 
         case "get_followups":
             let meeting = try meetingArg(arguments)
-            return Self.followupsJSON(meeting: meeting, items: archive.followups(for: meeting.id))
+            var items = archive.followups(for: meeting.id)
+            if arguments["mine"] as? Bool == true {
+                let myName = meeting.localUserName()
+                items = items.filter { $0.involvesMe(myName: myName) }
+            }
+            return Self.followupsJSON(meeting: meeting, items: items)
 
         case "get_all_followups":
             var statuses: Set<Followup.Status>?
@@ -453,10 +460,15 @@ final class MCPServer {
                 }
                 since = date
             }
+            let mine = arguments["mine"] as? Bool == true
             let meetings: [[String: Any]] = archive.allFollowups().compactMap { entry in
                 if let since, entry.meeting.createdAt < since { return nil }
-                let items = statuses.map { wanted in entry.items.filter { wanted.contains($0.status) } }
+                var items = statuses.map { wanted in entry.items.filter { wanted.contains($0.status) } }
                     ?? entry.items
+                if mine {
+                    let myName = entry.meeting.localUserName()
+                    items = items.filter { $0.involvesMe(myName: myName) }
+                }
                 guard !items.isEmpty else { return nil }
                 return [
                     "meeting_id": entry.meeting.id.uuidString,
@@ -670,7 +682,8 @@ final class MCPServer {
                 "Publishing requires the GitHub CLI (gh). Install it (brew install gh), run gh auth login, and try again.")
         }
         let html = HTMLExporter.html(
-            meeting: meeting, summaryMarkdown: summary, segments: archive.transcript(for: meeting.id))
+            meeting: meeting, summaryMarkdown: summary, segments: archive.transcript(for: meeting.id),
+            followups: archive.followups(for: meeting.id))
         let title = meeting.title
         let outcome: Result<(gist: URL, rendered: URL), Error> = blockingAwait {
             do {

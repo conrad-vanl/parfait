@@ -213,9 +213,10 @@ struct MeetingDetailView: View {
         let m = meeting
         let summary = app.store.summary(for: m.id)
         let segments = app.store.transcript(for: m.id)
+        let followups = app.store.followups(for: m.id)
         Task {
             do {
-                let html = HTMLExporter.html(meeting: m, summaryMarkdown: summary, segments: segments)
+                let html = HTMLExporter.html(meeting: m, summaryMarkdown: summary, segments: segments, followups: followups)
                 let (_, rendered) = try await GitHubGist.publish(
                     html: html,
                     filename: "meeting.html",
@@ -242,7 +243,8 @@ struct MeetingDetailView: View {
         let html = HTMLExporter.html(
             meeting: meeting,
             summaryMarkdown: app.store.summary(for: meeting.id),
-            segments: app.store.transcript(for: meeting.id))
+            segments: app.store.transcript(for: meeting.id),
+            followups: app.store.followups(for: meeting.id))
         let safeName = meeting.title.replacingOccurrences(of: "/", with: "-")
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("Parfait — \(safeName).html")
@@ -262,7 +264,8 @@ struct MeetingDetailView: View {
         let html = HTMLExporter.html(
             meeting: meeting,
             summaryMarkdown: app.store.summary(for: meeting.id),
-            segments: app.store.transcript(for: meeting.id))
+            segments: app.store.transcript(for: meeting.id),
+            followups: app.store.followups(for: meeting.id))
         try? html.data(using: .utf8)?.write(to: dest)
     }
 }

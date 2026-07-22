@@ -3,12 +3,13 @@ import Foundation
 /// Renders a meeting as a single self-contained HTML page (inline CSS, no external
 /// assets) suitable for publishing as a gist.
 enum HTMLExporter {
-    static func html(meeting: Meeting, summaryMarkdown: String, segments: [TranscriptSegment]) -> String {
+    static func html(meeting: Meeting, summaryMarkdown: String, segments: [TranscriptSegment], followups: [Followup]) -> String {
         let df = DateFormatter()
         df.dateStyle = .long
         df.timeStyle = .short
+        let dateString = df.string(from: meeting.createdAt)
         let title = escape(meeting.title)
-        let date = escape(df.string(from: meeting.createdAt))
+        let date = escape(dateString)
         let duration = escape(TemplateRenderer.duration(meeting.duration))
 
         let attendeeNames = meeting.attendees.isEmpty ? meeting.speakers.map(\.name) : meeting.attendees
@@ -27,6 +28,8 @@ enum HTMLExporter {
         \(summaryBody)
         </section>
         """
+
+        let followupsSection = followupsBlock(followups: followups, meeting: meeting, dateString: dateString)
 
         let turns = transcriptTurns(segments: segments, speakers: meeting.speakers)
         let transcriptBlock = turns.isEmpty ? "" : """
@@ -103,6 +106,34 @@ enum HTMLExporter {
         .speaker{font-weight:700}
         .time{margin-left:10px; color:var(--muted); font-size:.82rem; font-variant-numeric:tabular-nums}
         .turn p{margin:6px 0 0}
+        .followup-rail{
+          display:flex; gap:12px; overflow-x:auto; margin:0 -24px;
+          padding:2px 24px 12px; scroll-snap-type:x proximity; scroll-padding:24px;
+          scrollbar-width:thin;
+        }
+        .followup-card{
+          flex:0 0 250px; display:flex; flex-direction:column; align-items:flex-start;
+          gap:9px; background:var(--card); border-radius:16px; padding:18px 20px 16px;
+          box-shadow:inset 0 0 0 1px var(--border); scroll-snap-align:start;
+        }
+        .followup-card.done{opacity:.55}
+        .followup-head{display:flex; align-items:flex-start; gap:2px}
+        .followup-head input[type=checkbox]{margin-top:4px; flex:none}
+        .followup-title{
+          font-weight:600; line-height:1.35;
+          display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+        }
+        .followup-detail{
+          margin:0; color:var(--muted); font-size:.88rem; line-height:1.5;
+          display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;
+        }
+        .claude-btn{
+          display:inline-flex; align-items:center; gap:6px; margin-top:auto;
+          padding:5px 14px; border-radius:999px;
+          background:var(--accent); color:var(--page); font-size:.82rem; font-weight:700;
+          text-decoration:none;
+        }
+        .claude-btn svg{width:13px; height:13px; flex:none}
         footer{
           margin-top:44px; padding-top:18px; border-top:1px solid var(--border);
           text-align:center; color:var(--muted); font-size:.85rem;
@@ -112,6 +143,7 @@ enum HTMLExporter {
           main{padding:28px 16px 40px}
           header h1{font-size:1.6rem}
           .card{padding:20px 18px}
+          .followup-rail{margin:0 -16px; padding:2px 16px 12px; scroll-padding:16px}
         }
         </style>
         </head>
@@ -123,6 +155,7 @@ enum HTMLExporter {
         <div class="meta">\(date) · \(duration)</div>
         \(chips)
         </header>
+        \(followupsSection)
         \(summaryBlock)
         \(transcriptBlock)
         <footer>Recorded with <a href="https://github.com/conrad-vanl/parfait">Parfait</a></footer>
@@ -199,6 +232,57 @@ enum HTMLExporter {
         out = out.replacing(#/\*\*([^*]+)\*\*/#) { "<strong>\($0.1)</strong>" }
         out = out.replacing(#/\*([^*]+)\*/#) { "<em>\($0.1)</em>" }
         return out
+    }
+
+    /// Four-point sparkle matching the app's SF Symbol handoff icon; inline SVG
+    /// renders under the page's CSP (part of the document, not a fetched asset).
+    private static let sparkle = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M12 1.8C13.1 7.3 16.7 10.9 22.2 12 16.7 13.1 13.1 16.7 12 22.2 10.9 16.7 7.3 13.1 1.8 12 7.3 10.9 10.9 7.3 12 1.8Z\"/></svg>"
+
+    /// A horizontally scrolling card rail at the top of the page: open items
+    /// first (each with a "Hand to Claude" link), done items muted at the end,
+    /// dismissed never shown. Empty when nothing remains, like the
+    /// Summary/Transcript blocks.
+    private static func followupsBlock(followups: [Followup], meeting: Meeting, dateString: String) -> String {
+        let visible = followups.filter { $0.status != .dismissed }
+        let ordered = visible.filter(\.isOpen) + visible.filter { !$0.isOpen }
+        guard !ordered.isEmpty else { return "" }
+        let myName = meeting.localUserName()
+
+        let rows = ordered.map { item -> String in
+            let checked = item.status == .done
+            let ownerName = item.owner.flatMap { owner -> String? in
+                let trimmed = owner.trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolved = trimmed.caseInsensitiveCompare("me") == .orderedSame ? myName : trimmed
+                return resolved.isEmpty ? nil : resolved
+            }
+            let chip = ownerName.map { "\n<span class=\"chip\">\(escape($0))</span>" } ?? ""
+            let detail = item.suggestedAction.flatMap { action in
+                action.isEmpty ? nil : "\n<p class=\"followup-detail\">\(escape(action))</p>"
+            } ?? ""
+            var button = ""
+            if item.isOpen {
+                let prompt = ClaudeLink.publishedFollowupPrompt(
+                    item: item, ownerName: ownerName,
+                    meetingTitle: meeting.title, meetingDate: dateString)
+                // Plain same-tab <a> only: the served page's CSP has a bare
+                // sandbox directive, so popups (target="_blank") are blocked.
+                if let url = ClaudeLink.publishedFollowupURL(prompt: prompt) {
+                    button = "\n<a class=\"claude-btn\" href=\"\(escape(url.absoluteString))\">\(sparkle)Hand to Claude</a>"
+                }
+            }
+            return """
+            <article class="followup-card\(checked ? " done" : "")">
+            <div class="followup-head"><input type="checkbox" disabled\(checked ? " checked" : "")> <span class="followup-title">\(escape(item.title))</span></div>\(chip)\(detail)\(button)
+            </article>
+            """
+        }
+
+        return """
+        <h2 class="section-title">Follow-ups</h2>
+        <div class="followup-rail">
+        \(rows.joined(separator: "\n"))
+        </div>
+        """
     }
 
     /// Consecutive segments by the same speaker merge into one turn, mirroring

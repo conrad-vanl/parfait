@@ -81,9 +81,36 @@ struct Followup: Codable, Identifiable, Equatable, Sendable {
 extension Followup {
     /// Still on the queue: anything not yet done or dismissed.
     var isOpen: Bool { status != .done && status != .dismissed }
+
+    /// Owned by the local user: the extractor writes "me" (casing not
+    /// guaranteed), while MCP writers may use the user's real name.
+    func isMine(myName: String?) -> Bool {
+        let owner = (owner ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !owner.isEmpty else { return false }
+        if owner.caseInsensitiveCompare("me") == .orderedSame { return true }
+        guard let myName, !myName.isEmpty else { return false }
+        return owner.caseInsensitiveCompare(myName) == .orderedSame
+    }
+
+    /// Mine, or unassigned — unassigned items still need the user's triage,
+    /// so they count as involving the user.
+    func involvesMe(myName: String?) -> Bool {
+        let owner = (owner ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return owner.isEmpty || isMine(myName: myName)
+    }
 }
 
 extension Meeting {
+    /// The local user's name as this meeting knows it: the isMe speaker's
+    /// name (set from the account name at processing time, possibly edited
+    /// since), falling back to the account name when absent.
+    func localUserName(fallback: String = NSFullUserName()) -> String {
+        if let name = speakers.first(where: { $0.isMe })?.name, !name.isEmpty {
+            return name
+        }
+        return fallback
+    }
+
     static func placeholderTitle(for date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "EEEE h:mm a"

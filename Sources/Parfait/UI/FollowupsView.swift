@@ -16,16 +16,13 @@ struct FollowupsView: View {
     /// followups.json is also written by Claude in a separate MCP process.
     @State private var groups: [MeetingGroup] = []
     @State private var showCompleted = false
+    @State private var showEveryones = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if visibleGroups.isEmpty {
-                EmptyStateView(
-                    title: "No follow-ups",
-                    message: showCompleted
-                        ? "Nothing here yet — follow-ups are suggested when a meeting's notes are ready."
-                        : "Nothing open. Follow-ups are suggested when a meeting's notes are ready; review them here, then hand them to Claude.")
+                EmptyStateView(title: "No follow-ups", message: emptyMessage)
             } else {
                 list
             }
@@ -39,18 +36,51 @@ struct FollowupsView: View {
         groups = app.store.allFollowups().map { MeetingGroup(meeting: $0.meeting, items: $0.items) }
     }
 
+    /// Open items currently on screen — the header count tracks the view.
     private var openCount: Int {
-        groups.reduce(0) { $0 + $1.items.filter(\.isOpen).count }
+        visibleGroups.reduce(0) { $0 + $1.items.filter(\.isOpen).count }
+    }
+
+    /// Open items that are the user's to work (mine + unassigned) — the
+    /// hand-off always works this set, whatever the toggles show.
+    private var myOpenCount: Int {
+        groups.reduce(0) { total, group in
+            let myName = group.meeting.localUserName()
+            return total + group.items.filter { $0.isOpen && $0.involvesMe(myName: myName) }.count
+        }
+    }
+
+    /// Open items owned by other people, hidden unless "Show everyone's" is on.
+    private var othersOpenCount: Int {
+        groups.reduce(0) { total, group in
+            let myName = group.meeting.localUserName()
+            return total + group.items.filter { $0.isOpen && !$0.involvesMe(myName: myName) }.count
+        }
     }
 
     /// Open items first within each meeting; done/dismissed only behind the
-    /// toggle. Meetings with nothing visible drop out entirely.
+    /// toggle, other people's items only behind theirs. Meetings with nothing
+    /// visible drop out entirely.
     private var visibleGroups: [MeetingGroup] {
         groups.compactMap { group in
-            let open = group.items.filter(\.isOpen)
-            let items = showCompleted ? open + group.items.filter { !$0.isOpen } : open
+            let myName = group.meeting.localUserName()
+            let shown = showEveryones
+                ? group.items : group.items.filter { $0.involvesMe(myName: myName) }
+            let open = shown.filter(\.isOpen)
+            let items = showCompleted ? open + shown.filter { !$0.isOpen } : open
             return items.isEmpty ? nil : MeetingGroup(meeting: group.meeting, items: items)
         }
+    }
+
+    private var emptyMessage: String {
+        if !showEveryones, othersOpenCount > 0 {
+            return othersOpenCount == 1
+                ? "Nothing for you. 1 open item for someone else is hidden — check \u{201C}Show everyone\u{2019}s\u{201D} to see it."
+                : "Nothing for you. \(othersOpenCount) open items for others are hidden — check \u{201C}Show everyone\u{2019}s\u{201D} to see them."
+        }
+        return showCompleted
+            ? "Nothing here yet — follow-ups are suggested when a meeting's notes are ready."
+            : "Nothing open. Follow-ups are suggested when a meeting's notes are ready; review them here, then hand them to Claude."
     }
 
     private var header: some View {
@@ -62,6 +92,11 @@ struct FollowupsView: View {
                 .toggleStyle(.checkbox)
                 .font(.parfait(11))
                 .foregroundStyle(.secondary)
+            Toggle("Show everyone\u{2019}s", isOn: $showEveryones)
+                .toggleStyle(.checkbox)
+                .font(.parfait(11))
+                .foregroundStyle(.secondary)
+                .help("Include follow-ups owned by other attendees")
             Spacer()
             Button {
                 ClaudeLink.openFollowups(scope: .all)
@@ -71,8 +106,8 @@ struct FollowupsView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Theme.raspberry)
-            .disabled(openCount == 0)
-            .help("Hand every open follow-up to Claude in one chat")
+            .disabled(myOpenCount == 0)
+            .help("Hand every open follow-up that's yours to Claude in one chat")
         }
         .controlSize(.small)
         .padding(.horizontal, 20)

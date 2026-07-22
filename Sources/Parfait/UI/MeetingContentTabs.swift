@@ -390,7 +390,23 @@ struct MeetingFollowupsTab: View {
         items = all.filter(\.isOpen) + all.filter { !$0.isOpen }
     }
 
+    /// The user's slice (mine + unassigned) leads; other people's items sit
+    /// below under "Everyone else" — de-emphasized, still editable.
+    private var mineItems: [Followup] {
+        let myName = meeting.localUserName()
+        return items.filter { $0.involvesMe(myName: myName) }
+    }
+
+    private var otherItems: [Followup] {
+        let myName = meeting.localUserName()
+        return items.filter { !$0.involvesMe(myName: myName) }
+    }
+
+    /// The header count tracks the whole visible list; the handoff button keys
+    /// off the user's slice, which is what the meeting-scope skill works.
     private var openCount: Int { items.filter(\.isOpen).count }
+
+    private var myOpenCount: Int { mineItems.filter(\.isOpen).count }
 
     private var header: some View {
         HStack(spacing: 12) {
@@ -406,7 +422,7 @@ struct MeetingFollowupsTab: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Theme.raspberry)
-            .disabled(openCount == 0)
+            .disabled(myOpenCount == 0)
             .help("Hand this meeting's open follow-ups to Claude in one chat")
         }
         .controlSize(.small)
@@ -417,8 +433,18 @@ struct MeetingFollowupsTab: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
-                ForEach(items) { item in
+                ForEach(mineItems) { item in
                     FollowupItemCard(meetingID: meeting.id, item: item, onMutate: reload)
+                }
+                if !otherItems.isEmpty {
+                    Text("Everyone else")
+                        .font(.parfait(10, .semibold))
+                        .textCase(.uppercase)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                    ForEach(otherItems) { item in
+                        FollowupItemCard(meetingID: meeting.id, item: item, onMutate: reload)
+                    }
                 }
             }
             .frame(maxWidth: 660, alignment: .leading)

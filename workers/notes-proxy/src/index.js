@@ -27,6 +27,14 @@ const SIZE_CAP_BYTES = 2 * 1024 * 1024; // 2 MiB
 
 const GENERATOR_MARKER = '<meta name="generator" content="parfait/1">';
 
+// Serve-time page-URL substitution: an export can't know its own public URL at
+// render time (the token pins the content hash), so the app bakes this inert
+// marker into "Hand to Claude" hrefs and the Worker fills in the real URL when
+// serving. The replacement is percent-encoded (letters, digits, '%' only), so
+// it can never introduce markup or a forbidden tag opener. Contract with
+// Sources/Parfait/Intelligence/ClaudeLink.swift (pageURLMarker).
+export const PAGE_URL_MARKER = 'PARFAIT_PAGE_URL';
+
 // Tag-opener substrings that are never legitimate in a Parfait export, since
 // HTMLExporter escapes `<` in all user-derived text (transcript, notes).
 // Deliberately NOT bare substrings like "javascript:" or "http-equiv" alone
@@ -333,7 +341,12 @@ export default {
       return finalizeForMethod(res, request.method);
     }
 
-    const res = new Response(text, { status: 200, headers: new Headers(SECURITY_HEADERS) });
+    // Substituted body is cached as-is: the cache key and the served path both
+    // derive from the same (user, gistId, sha) tuple, so the baked-in URL is
+    // stable for every request that can hit this entry.
+    const pageUrl = encodeURIComponent(`${url.origin}${url.pathname}`);
+    const body = text.replaceAll(PAGE_URL_MARKER, pageUrl);
+    const res = new Response(body, { status: 200, headers: new Headers(SECURITY_HEADERS) });
     ctx.waitUntil(cache.put(cacheKey, res.clone()));
     return finalizeForMethod(res, request.method);
   },

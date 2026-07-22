@@ -25,12 +25,18 @@ autonomously, and record outcomes back into Parfait.
 
 The app emits exactly these forms; parse all three:
 
-- **empty** — the whole queue: `get_all_followups {status: "open"}`.
+- **empty** — the whole queue: `get_all_followups {status: "open", mine:
+  true}`.
 - **`meeting <uuid>`** — one meeting's open items: `get_followups
-  {meeting_id}` (or `get_all_followups` filtered to that meeting), keeping
-  items with status `proposed`, `approved`, or `in_progress`.
-- **`item <meeting-uuid> <item-uuid>`** — that single item: fetch the meeting's
-  followups and work only the item with that id.
+  {meeting_id, mine: true}` (or `get_all_followups` filtered to that meeting),
+  keeping items with status `proposed`, `approved`, or `in_progress`.
+- **`item <meeting-uuid> <item-uuid>`** — that single item: `get_followups
+  {meeting_id}` **without `mine`** and work only the item with that id. An
+  explicitly picked item is worked regardless of owner.
+
+`mine: true` scopes the queue to the user's own items plus unassigned ones —
+other people's follow-ups are theirs to work. It applies to the empty and
+meeting scopes only, never the item scope.
 
 `get_all_followups` returns `{meetings: [{meeting_id, meeting_title,
 items: [...]}]}`; each item carries `id`, `kind`, `title`, `owner`,

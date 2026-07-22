@@ -16,7 +16,7 @@ final class MCPServerTests: XCTestCase {
         server = MCPServer(archive: archive, templates: templates)
 
         var m = Meeting(title: "Roadmap sync", createdAt: Date())
-        m.speakers = [Speaker(id: "me", name: "Me", isMe: true), Speaker(id: "s1", name: "Priya")]
+        m.speakers = [Speaker(id: "me", name: "Pat Tester", isMe: true), Speaker(id: "s1", name: "Priya")]
         m.duration = 1800
         m.state = .ready
         try archive.createFolder(for: m.id)
@@ -514,11 +514,11 @@ final class MCPServerTests: XCTestCase {
 
     // MARK: - get_all_followups
 
-    private func makeFollowup(title: String, status: Followup.Status) -> Followup {
+    private func makeFollowup(title: String, status: Followup.Status, owner: String? = nil) -> Followup {
         let now = Date()
         return Followup(
             id: UUID(), kind: .action, title: title,
-            owner: nil, sourceQuote: nil, suggestedAction: nil,
+            owner: owner, sourceQuote: nil, suggestedAction: nil,
             status: status, resultURL: nil, note: nil,
             createdAt: now, updatedAt: now)
     }
@@ -627,6 +627,67 @@ final class MCPServerTests: XCTestCase {
         let result = try callTool("get_all_followups", [:], id: 57)
         let structured = result["structuredContent"] as! [String: Any]
         XCTAssertEqual((structured["meetings"] as! [Any]).count, 1)
+    }
+
+    // MARK: - mine filter
+
+    /// One item per owner spelling the filter must handle. The fixture
+    /// meeting's isMe speaker is "Pat Tester" — the tests never depend on the
+    /// machine's NSFullUserName().
+    private func seedOwnerMatrix() throws {
+        try archive.saveFollowups([
+            makeFollowup(title: "me item", status: .proposed, owner: "me"),
+            makeFollowup(title: "Me item", status: .proposed, owner: "Me"),
+            makeFollowup(title: "Named item", status: .proposed, owner: "Pat Tester"),
+            makeFollowup(title: "Alice item", status: .proposed, owner: "Alice"),
+            makeFollowup(title: "Unassigned item", status: .proposed, owner: nil),
+        ], for: meeting.id)
+    }
+
+    func testGetFollowupsMineFilter() throws {
+        try seedOwnerMatrix()
+
+        let mine = try callTool("get_followups", [
+            "meeting_id": meeting.id.uuidString, "mine": true,
+        ], id: 58)
+        let mineJSON = try JSONSerialization.jsonObject(with: Data(text(mine).utf8)) as! [String: Any]
+        let mineTitles = (mineJSON["items"] as! [[String: Any]]).map { $0["title"] as! String }
+        XCTAssertEqual(mineTitles.sorted(), ["Me item", "Named item", "Unassigned item", "me item"])
+
+        let all = try callTool("get_followups", ["meeting_id": meeting.id.uuidString], id: 59)
+        let allJSON = try JSONSerialization.jsonObject(with: Data(text(all).utf8)) as! [String: Any]
+        XCTAssertEqual((allJSON["items"] as! [Any]).count, 5)
+    }
+
+    func testGetAllFollowupsMineFilter() throws {
+        try seedOwnerMatrix()
+
+        let mine = try callTool("get_all_followups", ["mine": true], id: 70)
+        let mineMeetings = try meetingsEnvelope(mine)
+        XCTAssertEqual(mineMeetings.count, 1)
+        let mineTitles = (mineMeetings[0]["items"] as! [[String: Any]]).map { $0["title"] as! String }
+        XCTAssertEqual(mineTitles.sorted(), ["Me item", "Named item", "Unassigned item", "me item"])
+
+        let all = try callTool("get_all_followups", [:], id: 71)
+        XCTAssertEqual((try meetingsEnvelope(all)[0]["items"] as! [Any]).count, 5)
+
+        let explicitlyOff = try callTool("get_all_followups", ["mine": false], id: 72)
+        XCTAssertEqual((try meetingsEnvelope(explicitlyOff)[0]["items"] as! [Any]).count, 5)
+    }
+
+    func testGetAllFollowupsMineCombinesWithStatus() throws {
+        try archive.saveFollowups([
+            makeFollowup(title: "Mine open", status: .proposed, owner: "me"),
+            makeFollowup(title: "Mine done", status: .done, owner: "me"),
+            makeFollowup(title: "Alice open", status: .inProgress, owner: "Alice"),
+            makeFollowup(title: "Unassigned open", status: .approved, owner: nil),
+        ], for: meeting.id)
+
+        let result = try callTool("get_all_followups", ["status": "open", "mine": true], id: 73)
+        let meetings = try meetingsEnvelope(result)
+        XCTAssertEqual(meetings.count, 1)
+        let titles = (meetings[0]["items"] as! [[String: Any]]).map { $0["title"] as! String }
+        XCTAssertEqual(titles.sorted(), ["Mine open", "Unassigned open"])
     }
 
     // MARK: - list_meetings since
