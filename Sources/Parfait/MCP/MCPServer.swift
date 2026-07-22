@@ -278,7 +278,7 @@ final class MCPServer {
         ],
         [
             "name": "publish_meeting",
-            "description": "Publish a meeting's notes and transcript as a styled web page (backed by a secret GitHub gist). Returns the shareable notes.parfait.to link — that's the URL to give the user — plus the underlying gist URL. Anyone with the link can read the page. Requires the GitHub CLI (gh) installed and authenticated.",
+            "description": "Publish a meeting's notes — plus the transcript, unless the user turned that off in the app's share menu — as a styled web page (backed by a secret GitHub gist). Returns the shareable notes.parfait.to link — that's the URL to give the user — plus the underlying gist URL. Anyone with the link can read the page. Requires the GitHub CLI (gh) installed and authenticated.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
@@ -682,7 +682,8 @@ final class MCPServer {
                 "Publishing requires the GitHub CLI (gh). Install it (brew install gh), run gh auth login, and try again.")
         }
         let html = HTMLExporter.html(
-            meeting: meeting, summaryMarkdown: summary, segments: archive.transcript(for: meeting.id),
+            meeting: meeting, summaryMarkdown: summary,
+            segments: AppSettings.publishTranscript ? archive.transcript(for: meeting.id) : [],
             followups: archive.followups(for: meeting.id))
         let title = meeting.title
         let outcome: Result<(gist: URL, rendered: URL), Error> = blockingAwait {

@@ -10,6 +10,7 @@ struct MeetingDetailView: View {
     @State private var title: String
     @State private var publishState: PublishState = .idle
     @State private var showDeleteConfirm = false
+    @AppStorage(SettingsKey.publishTranscript) private var publishTranscript = true
     // Edit drafts live here, not in the tab views, so an accidental tab switch
     // can't destroy ten minutes of transcript fixes. nil = not editing.
     @State private var notesDraft: String?
@@ -153,12 +154,13 @@ struct MeetingDetailView: View {
     private var publishMenu: some View {
         Menu {
             if GitHubGist.isAvailable {
-                Button("Publish to secret Gist") { publish() }
+                Button("Create shareable link") { publish() }
             } else {
-                Button("Publish to secret Gist (needs gh)") {}
+                Button("Create shareable link (needs gh)") {}
                     .disabled(true)
             }
             Button("Preview in browser") { previewInBrowser() }
+            Toggle("Include transcript", isOn: $publishTranscript)
             if let existing = meeting.publishedURL, let url = URL(string: existing) {
                 Divider()
                 Link("Open published page", destination: url)
@@ -212,7 +214,7 @@ struct MeetingDetailView: View {
         publishState = .working
         let m = meeting
         let summary = app.store.summary(for: m.id)
-        let segments = app.store.transcript(for: m.id)
+        let segments = publishTranscript ? app.store.transcript(for: m.id) : []
         let followups = app.store.followups(for: m.id)
         Task {
             do {
@@ -243,7 +245,7 @@ struct MeetingDetailView: View {
         let html = HTMLExporter.html(
             meeting: meeting,
             summaryMarkdown: app.store.summary(for: meeting.id),
-            segments: app.store.transcript(for: meeting.id),
+            segments: publishTranscript ? app.store.transcript(for: meeting.id) : [],
             followups: app.store.followups(for: meeting.id))
         let safeName = meeting.title.replacingOccurrences(of: "/", with: "-")
         let file = FileManager.default.temporaryDirectory
@@ -264,7 +266,7 @@ struct MeetingDetailView: View {
         let html = HTMLExporter.html(
             meeting: meeting,
             summaryMarkdown: app.store.summary(for: meeting.id),
-            segments: app.store.transcript(for: meeting.id),
+            segments: publishTranscript ? app.store.transcript(for: meeting.id) : [],
             followups: app.store.followups(for: meeting.id))
         try? html.data(using: .utf8)?.write(to: dest)
     }

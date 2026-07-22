@@ -15,6 +15,7 @@ enum SettingsKey {
     static let systemAudioConfirmed = "systemAudioConfirmed"   // tap has captured real (non-silent) audio at least once
     static let preferClaudeSummaries = "preferClaudeSummaries" // when Claude is available, use it for summaries first (vs. Apple-first)
     static let captureScreenshots = "captureScreenshots"    // experimental: sample screenshots mid-meeting to name participants
+    static let publishTranscript = "publishTranscript"      // include the full transcript on published/shared pages
 }
 
 enum AppSettings {
@@ -34,6 +35,7 @@ enum AppSettings {
             SettingsKey.systemAudioConfirmed: false,
             SettingsKey.preferClaudeSummaries: true,
             SettingsKey.captureScreenshots: false,
+            SettingsKey.publishTranscript: true,
         ])
     }
 
@@ -62,4 +64,5 @@ enum AppSettings {
     static func markSystemAudioConfirmed() { defaults.set(true, forKey: SettingsKey.systemAudioConfirmed) }
     static var preferClaudeSummaries: Bool { defaults.bool(forKey: SettingsKey.preferClaudeSummaries) }
     static var captureScreenshots: Bool { defaults.bool(forKey: SettingsKey.captureScreenshots) }
+    static var publishTranscript: Bool { defaults.bool(forKey: SettingsKey.publishTranscript) }
 }
