@@ -18,6 +18,7 @@ struct MeetingDetailView: View {
     enum Tab: String, CaseIterable {
         case notes = "Notes"
         case transcript = "Transcript"
+        case followups = "Follow ups"
     }
 
     enum PublishState: Equatable {
@@ -144,7 +145,7 @@ struct MeetingDetailView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 240, alignment: .leading)
+            .frame(maxWidth: 340, alignment: .leading)
             .padding(.top, 6)
         }
     }
@@ -194,6 +195,8 @@ struct MeetingDetailView: View {
             NotesTab(meeting: meeting, draft: $notesDraft)
         case .transcript:
             TranscriptTab(meeting: meeting, draft: $transcriptDraft)
+        case .followups:
+            MeetingFollowupsTab(meeting: meeting)
         }
     }
 

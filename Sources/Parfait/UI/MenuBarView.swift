@@ -183,6 +183,18 @@ private struct RecordingCard: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.blueberry)
             }
+            Button {
+                // recordingMeeting is a start-time snapshot; a mid-meeting
+                // retitle lives only in the store, so re-read before asking.
+                let fresh = meeting.flatMap { app.store.meeting(id: $0.id) } ?? meeting
+                ClaudeLink.openScoop(eventTitle: fresh?.calendarEventTitle ?? fresh?.title)
+            } label: {
+                Label("Get the scoop", systemImage: "sparkles")
+                    .font(.parfait(11))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.blueberry)
+            .help("Have Claude brief you on this meeting's people and history")
         }
         .cardStyle()
     }

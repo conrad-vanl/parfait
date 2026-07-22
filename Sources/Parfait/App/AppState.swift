@@ -37,6 +37,9 @@ final class AppState: NSObject, ObservableObject {
     @Published private(set) var summaryProgress: [UUID: SummaryProgress] = [:]
     /// A meeting-ish app started using the mic and we're waiting on the user.
     @Published private(set) var detectedAppName: String?
+    /// A scoop-worthy calendar event starting in the next few minutes — drives
+    /// the floating card's upcoming (pre-meeting) state.
+    @Published private(set) var upcomingMeeting: UpcomingEvent?
     @Published var lastError: String?
     /// Set by the menu bar to steer the main window's selection.
     @Published var openMeetingID: UUID?
@@ -65,6 +68,24 @@ final class AppState: NSObject, ObservableObject {
     /// announce on a quick mic reconnect while still allowing a genuinely new later meeting.
     private var lastDetectionAnnounce: [pid_t: ContinuousClock.Instant] = [:]
     private static let announceCooldown: Duration = .seconds(15)
+    /// Occurrences the upcoming card already surfaced once — shown, dismissed,
+    /// or consumed by a detection/recording — so it never re-shows for them.
+    /// In-memory on purpose: a relaunch may fairly prompt again.
+    private var shownUpcomingKeys: Set<String> = []
+    /// The user declined a detection while an app still holds the mic — they're
+    /// sitting in a meeting they chose not to record, so the upcoming card must
+    /// not pop for whatever calendar event is imminent. Cleared when every mic
+    /// app goes quiet (the declined meeting ended) or a recording starts.
+    private var declinedActiveMicSession = false
+    private var upcomingPoll: Task<Void, Never>?
+    /// Serializes ticks: the 60s poll and the wake-notification tick can land
+    /// together, and two in-flight EventKit queries would race each other's
+    /// stale lists into clearing a just-shown card.
+    private var upcomingTickInFlight = false
+    /// How far ahead the pre-meeting card looks, and how long a started-but-
+    /// unjoined meeting lingers on it before the card gives up.
+    private static let upcomingWindow: TimeInterval = 5 * 60
+    private static let upcomingLinger: TimeInterval = 10 * 60
     private var pendingAutoStop: Task<Void, Never>?
     /// Retains the detection chime while it plays — a temporary NSSound can be
     /// deallocated mid-play. Replaced on each detection.
@@ -73,7 +94,10 @@ final class AppState: NSObject, ObservableObject {
     private let log = Logger(subsystem: "io.github.conrad-vanl.Parfait", category: "detection")
     /// Closes the reentrancy window between startRecording's guard and its
     /// `session =` assignment (mic-permission dialog, calendar lookup).
-    private var isStartingRecording = false
+    /// Published so the meeting card can hold its last state across that gap —
+    /// detection/upcoming clear at the top of startRecording but the session
+    /// only lands at the end, and the card must morph, not blink out.
+    @Published private(set) var isStartingRecording = false
     private var cancellables = Set<AnyCancellable>()
 
     var isRecording: Bool { session != nil }
@@ -99,6 +123,17 @@ final class AppState: NSObject, ObservableObject {
             await Task.detached { SystemAudioTap.destroyLeftoverAggregates() }.value
             if AppSettings.detectMeetings { startDetection() }
         }
+        if AppSettings.upcomingCard { startUpcomingPoll() }
+        // The 60s poll cadence sleeps with the machine — tick immediately on
+        // wake so a meeting starting right after the lid opens gets its card.
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.upcomingPoll != nil else { return }
+                    await self.upcomingTick()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     /// Called from applicationShouldTerminate: finalize audio files so the
@@ -132,6 +167,7 @@ final class AppState: NSObject, ObservableObject {
         // detector.stop() drops its listeners without emitting closing false events,
         // so any still-running pid would linger here and permanently block auto-stop.
         activeMicApps.removeAll()
+        declinedActiveMicSession = false
         pendingAutoStop?.cancel()
         pendingAutoStop = nil
     }
@@ -165,6 +201,9 @@ final class AppState: NSObject, ObservableObject {
         } else {
             activeMicApps.removeValue(forKey: event.pid)
             pendingDetections.removeValue(forKey: event.pid)
+            // Every mic app quiet — the meeting the user declined to record (if
+            // any) is over, so the upcoming card may prompt for the next one.
+            if activeMicApps.isEmpty { declinedActiveMicSession = false }
             if !isRecording, event.pid == pendingDetection?.pid {
                 // The app we were prompting for released. Surface the next still-undecided app so
                 // an ongoing meeting keeps prompting instead of the prompt vanishing for good.
@@ -174,6 +213,11 @@ final class AppState: NSObject, ObservableObject {
                 } else {
                     detectedAppName = nil
                     pendingDetection = nil
+                    // upcomingMeeting deliberately survives: a transient mic
+                    // blip (browser permission check, reconnect) isn't a user
+                    // decision, so the card falls back to the still-valid
+                    // pre-meeting state. Record and Dismiss are the paths
+                    // where the user actually decided; they consume it.
                 }
             }
             // All detected mic apps quiet — debounced (apps drop and re-grab
@@ -200,13 +244,20 @@ final class AppState: NSObject, ObservableObject {
     // MARK: - Recording
 
     /// User accepted a detection (menu banner or notification action).
+    /// No calendarEvent is passed: startRecording prefers the truly in-progress
+    /// event and only falls back to the ride-along upcoming one — an accept in
+    /// the last minutes of meeting A must not get stamped with next-up B.
     func acceptDetection() async {
         let event = pendingDetection
         let name = detectedAppName ?? event.map(MeetingDetector.displayName)
         await startRecording(sourceApp: name, trigger: event)
     }
 
-    func startRecording(sourceApp: String? = nil, trigger: MicEvent? = nil) async {
+    func startRecording(
+        sourceApp: String? = nil,
+        trigger: MicEvent? = nil,
+        calendarEvent: (title: String, attendees: [String])? = nil
+    ) async {
         guard !isRecording, !isStartingRecording else { return }
         isStartingRecording = true
         defer { isStartingRecording = false }
@@ -215,6 +266,12 @@ final class AppState: NSObject, ObservableObject {
         detectedAppName = nil
         pendingDetection = nil
         pendingDetections.removeAll() // one recording covers the whole meeting, whatever grabbed the mic
+        declinedActiveMicSession = false // recording is a fresh decision
+        // Capture the ride-along candidate before consuming the card, so an
+        // auto-record or menu-bar start keeps a known imminent event just like
+        // an accepted detection does.
+        let upcomingFallback = upcomingMeeting.map { (title: $0.title, attendees: $0.attendees) }
+        upcomingMeeting = nil // consumed — its occurrenceKey stays in shownUpcomingKeys
         lastError = nil
 
         if !MicRecorder.permissionGranted {
@@ -225,11 +282,25 @@ final class AppState: NSObject, ObservableObject {
         meeting.sourceApp = sourceApp
         meeting.templateName = AppSettings.defaultTemplate
 
-        if AppSettings.useCalendar, CalendarMatcher.isAuthorized,
-           let event = await CalendarMatcher.currentEvent() {
-            meeting.title = event.title
-            meeting.calendarEventTitle = event.title
-            meeting.attendees = event.attendees
+        if let calendarEvent {
+            // Explicit event from the upcoming card's "Join & record": the user
+            // chose this exact event, so it wins even over an in-progress match.
+            meeting.title = calendarEvent.title
+            meeting.calendarEventTitle = calendarEvent.title
+            meeting.attendees = calendarEvent.attendees
+        } else if AppSettings.useCalendar, CalendarMatcher.isAuthorized {
+            if let event = await CalendarMatcher.currentEvent() {
+                // A truly in-progress event beats the ride-along next one.
+                meeting.title = event.title
+                meeting.calendarEventTitle = event.title
+                meeting.attendees = event.attendees
+            } else if let upcomingFallback {
+                // Joined early: the event isn't in progress yet, so the
+                // currentEvent() lookup above misses it.
+                meeting.title = upcomingFallback.title
+                meeting.calendarEventTitle = upcomingFallback.title
+                meeting.attendees = upcomingFallback.attendees
+            }
         }
 
         // A competing start may have won while we awaited the dialogs above.
@@ -295,6 +366,87 @@ final class AppState: NSObject, ObservableObject {
         detectedAppName = nil
         pendingDetection = nil
         pendingDetections.removeAll()
+        // The card must not fall back to the weaker upcoming prompt either; the
+        // occurrenceKey is already in shownUpcomingKeys so it won't re-publish.
+        upcomingMeeting = nil
+        // While the declined meeting's app still holds the mic, the poll must
+        // not pop an upcoming card either — that would re-prompt to record the
+        // very meeting the user just declined. Flag, not key-consumption: the
+        // right occurrence isn't knowable here (the event may have started, or
+        // sit outside the poll window), and the flag lifts when the mic quiets
+        // so later meetings are unaffected.
+        declinedActiveMicSession = !activeMicApps.isEmpty
+    }
+
+    // MARK: - Upcoming meetings
+
+    /// 60-second calendar poll behind the pre-meeting card. Ticks are cheap
+    /// no-ops unless the calendar settings are on and access was already
+    /// granted — the poll must never trigger a permission prompt.
+    func startUpcomingPoll() {
+        guard upcomingPoll == nil else { return }
+        upcomingPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.upcomingTick()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+    }
+
+    func stopUpcomingPoll() {
+        upcomingPoll?.cancel()
+        upcomingPoll = nil
+        upcomingMeeting = nil
+    }
+
+    /// Dismissal is per-occurrence (its key went into shownUpcomingKeys when it
+    /// was shown) — and deliberately does NOT block a later mic detection for
+    /// the same meeting.
+    func dismissUpcoming() {
+        upcomingMeeting = nil
+    }
+
+    private func upcomingTick() async {
+        guard AppSettings.useCalendar, AppSettings.upcomingCard, CalendarMatcher.isAuthorized else {
+            upcomingMeeting = nil // setting turned off / access revoked mid-flight
+            return
+        }
+        guard !isRecording, !isStartingRecording else { return }
+        guard !upcomingTickInFlight else { return }
+        upcomingTickInFlight = true
+        defer { upcomingTickInFlight = false }
+        let events = await CalendarMatcher.upcomingEvents(within: Self.upcomingWindow)
+        // Re-check every guard: the query suspended us, and a recording start, a
+        // settings toggle, or a poll stop may have interleaved — publishing past
+        // any of them would leave a phantom card that nothing ever clears.
+        guard !Task.isCancelled, upcomingPoll != nil,
+              AppSettings.useCalendar, AppSettings.upcomingCard,
+              !isRecording, !isStartingRecording else { return }
+        let now = Date()
+        if let current = upcomingMeeting {
+            if let refreshed = events.first(where: { $0.occurrenceKey == current.occurrenceKey }) {
+                // Same occurrence — pick up mid-flight edits (title, added link).
+                if refreshed != current { upcomingMeeting = refreshed }
+            } else if now >= min(current.endDate, current.startDate.addingTimeInterval(Self.upcomingLinger)) {
+                // Ended, or started long enough ago that a "join" prompt is stale.
+                upcomingMeeting = nil
+            } else if now < current.startDate {
+                // Not started yet but no longer returned: deleted or moved.
+                upcomingMeeting = nil
+            }
+            // Otherwise it started less than upcomingLinger ago and hasn't
+            // ended — keep offering the late join (the query only returns
+            // not-yet-started events) unless a fresh event below replaces it.
+        }
+        // A started, still-lingering card yields to the next meeting's fresh
+        // card — otherwise back-to-back events inside the linger window would
+        // silently never get offered.
+        let replaceable = upcomingMeeting.map { now >= $0.startDate } ?? true
+        if replaceable, !declinedActiveMicSession,
+           let found = events.first(where: { !shownUpcomingKeys.contains($0.occurrenceKey) }) {
+            shownUpcomingKeys.insert(found.occurrenceKey)
+            upcomingMeeting = found
+        }
     }
 
     // MARK: - Processing

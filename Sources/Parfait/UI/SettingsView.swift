@@ -25,6 +25,7 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.autoStopRecording) private var autoStopRecording = true
     @AppStorage(SettingsKey.identifySpeakers) private var identifySpeakers = true
     @AppStorage(SettingsKey.useCalendar) private var useCalendar = true
+    @AppStorage(SettingsKey.upcomingCard) private var upcomingCard = true
     @AppStorage(SettingsKey.defaultTemplate) private var defaultTemplate = "Meeting Notes"
     @AppStorage(SettingsKey.systemAudioConfirmed) private var systemAudioConfirmed = false
     @AppStorage(SettingsKey.captureScreenshots) private var captureScreenshots = false
@@ -99,6 +100,14 @@ private struct GeneralSettings: View {
                         .controlSize(.small)
                     }
                 }
+                Toggle("Upcoming meeting card", isOn: $upcomingCard)
+                    .disabled(!useCalendar)
+                    .onChange(of: upcomingCard) {
+                        upcomingCard ? app.startUpcomingPoll() : app.stopUpcomingPoll()
+                    }
+                Text("Shows a floating card about five minutes before a calendar meeting starts — join, record, or get the scoop from there.")
+                    .font(.parfait(11))
+                    .foregroundStyle(.secondary)
                 Picker("Default template", selection: $defaultTemplate) {
                     ForEach(app.templates.list()) { Text($0.name).tag($0.name) }
                 }

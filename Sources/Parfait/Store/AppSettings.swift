@@ -7,6 +7,7 @@ enum SettingsKey {
     static let detectMeetings = "detectMeetings"            // watch for mic activity at all
     static let identifySpeakers = "identifySpeakers"        // run on-device diarization
     static let useCalendar = "useCalendar"                  // match calendar events for titles/attendees
+    static let upcomingCard = "upcomingCard"                // floating card ~5 minutes before calendar meetings
     static let defaultTemplate = "defaultTemplate"
     static let ignoredBundleIDs = "ignoredBundleIDs"        // apps that never count as meetings
     static let autoStopRecording = "autoStopRecording"      // stop ~8s after the meeting app releases the mic
@@ -25,6 +26,7 @@ enum AppSettings {
             SettingsKey.detectMeetings: true,
             SettingsKey.identifySpeakers: true,
             SettingsKey.useCalendar: true,
+            SettingsKey.upcomingCard: true,
             SettingsKey.defaultTemplate: "Meeting Notes",
             SettingsKey.ignoredBundleIDs: defaultIgnoredBundleIDs,
             SettingsKey.autoStopRecording: true,
@@ -47,6 +49,7 @@ enum AppSettings {
     static var detectMeetings: Bool { defaults.bool(forKey: SettingsKey.detectMeetings) }
     static var identifySpeakers: Bool { defaults.bool(forKey: SettingsKey.identifySpeakers) }
     static var useCalendar: Bool { defaults.bool(forKey: SettingsKey.useCalendar) }
+    static var upcomingCard: Bool { defaults.bool(forKey: SettingsKey.upcomingCard) }
     static var defaultTemplate: String {
         defaults.string(forKey: SettingsKey.defaultTemplate) ?? "Meeting Notes"
     }

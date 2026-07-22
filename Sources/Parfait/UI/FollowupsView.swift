@@ -111,13 +111,18 @@ struct FollowupsView: View {
 
 /// One editable follow-up: the read-only row plus the item's "instructions for
 /// Claude" (suggestedAction) as an inline editor, and the act-on-it buttons.
-private struct FollowupItemCard: View {
+/// Shared by this view and the meeting detail's Follow ups tab.
+struct FollowupItemCard: View {
     @EnvironmentObject private var app: AppState
     let meetingID: UUID
     let item: Followup
     let onMutate: () -> Void
 
     @State private var instructions = ""
+    /// What was last loaded INTO the field. Commits require the user's own
+    /// divergence from this — an untouched-but-focused field must not clobber
+    /// an external (MCP) write that arrived while the resync was suspended.
+    @State private var syncedInstructions = ""
     @FocusState private var editingInstructions: Bool
 
     var body: some View {
@@ -155,27 +160,38 @@ private struct FollowupItemCard: View {
             }
         }
         .cardStyle()
-        .onAppear { instructions = item.suggestedAction ?? "" }
-        .onChange(of: item.id) { instructions = item.suggestedAction ?? "" }
+        .onAppear { syncInstructions() }
+        .onChange(of: item.id) { syncInstructions() }
         // An external writer (MCP process, another surface) may change the
         // instructions while this card is on screen — resync unless the user
         // is mid-edit, or a later focus-loss commit would clobber their write
         // with our stale copy.
         .onChange(of: item.suggestedAction) {
-            if !editingInstructions { instructions = item.suggestedAction ?? "" }
+            if !editingInstructions { syncInstructions() }
         }
         .onChange(of: editingInstructions) {
             if !editingInstructions { commitInstructions() }
         }
+        // A tab switch (or sidebar navigation) tears the card down in the same
+        // transaction — the focus-loss onChange above never fires, so commit
+        // here or a mid-edit draft dies with the view.
+        .onDisappear { commitInstructions() }
+    }
+
+    private func syncInstructions() {
+        instructions = item.suggestedAction ?? ""
+        syncedInstructions = instructions
     }
 
     private func commitInstructions() {
+        guard instructions != syncedInstructions else { return } // user never diverged
         let trimmed = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         let newValue = trimmed.isEmpty ? nil : trimmed
         guard newValue != item.suggestedAction else { return }
         app.store.updateFollowup(meetingID: meetingID, itemID: item.id) {
             $0.suggestedAction = newValue
         }
+        syncedInstructions = instructions
         onMutate()
     }
 
@@ -188,8 +204,7 @@ private struct FollowupItemCard: View {
 }
 
 /// The read-only follow-up row: kind icon, title, owner, result link, status
-/// capsule. Shared by the Follow-ups tab (inside the editable card) and the
-/// NotesTab followups section.
+/// capsule. Rendered inside every FollowupItemCard.
 struct FollowupRow: View {
     let item: Followup
 

@@ -54,8 +54,7 @@ struct ParfaitApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowObservers: [NSObjectProtocol] = []
-    private var detectionPrompt: DetectionPromptController?
-    private var recordingCard: RecordingCardController?
+    private var meetingCard: MeetingCardController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Refresh the plugin's launcher before onboarding can run an install —
@@ -63,11 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MCPLauncher.writeLauncherScript()
         Task { @MainActor in AppState.shared.bootstrap() }
         observeWindowsForMenuBar()
-        // The floating "Record this meeting?" card on detection, and the live
-        // recording card (transcript + Ask Claude live) while recording.
+        // The one floating meeting card: upcoming calendar meetings, "Record
+        // this meeting?" detection, and the live recording view share a panel.
         MainActor.assumeIsolated {
-            detectionPrompt = DetectionPromptController()
-            recordingCard = RecordingCardController()
+            meetingCard = MeetingCardController()
         }
     }
 

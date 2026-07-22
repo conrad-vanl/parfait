@@ -183,6 +183,74 @@ struct EmptyStateView: View {
     }
 }
 
+/// Keeps a live transcript ScrollView pinned to its bottom anchor while the user is at
+/// (or near) the bottom; scrolling up holds their place until they scroll back down or
+/// tap "Jump to latest". Apply to the ScrollView, with a `ScrollViewReader` at the call
+/// site providing the proxy and a view inside the content carrying `anchor` as its id.
+struct LiveTranscriptPinning: ViewModifier {
+    let anchor: String
+    let segmentCount: Int
+    let volatileText: String
+    let proxy: ScrollViewProxy
+    @Environment(\.colorScheme) private var scheme
+    @State private var followsLive = true
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                // A rebuilt view (the floating card hidden and re-shown, or the
+                // Transcript tab re-opened mid-recording) starts at the top of
+                // the accumulated transcript — resume the live tail instead.
+                followsLive = true
+                proxy.scrollTo(anchor, anchor: .bottom)
+            }
+            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { old, new in
+                // Content growth must never unpin: the geometry event carries the new
+                // contentSize before the compensating scrollTo below has run, so the
+                // stale offset would read as "scrolled away from the bottom". Only
+                // user scrolls (offset changes at stable size) may change followsLive.
+                guard abs(new.contentSize.height - old.contentSize.height) <= 0.5 else { return }
+                let nearBottom = new.contentOffset.y + new.containerSize.height >=
+                    new.contentSize.height + new.contentInsets.bottom - 40
+                if followsLive != nearBottom { followsLive = nearBottom }
+            }
+            .onChange(of: segmentCount) {
+                if followsLive { proxy.scrollTo(anchor, anchor: .bottom) }
+            }
+            .onChange(of: volatileText) {
+                if followsLive { proxy.scrollTo(anchor, anchor: .bottom) }
+            }
+            .overlay(alignment: .bottom) {
+                if !followsLive {
+                    Button {
+                        followsLive = true
+                        proxy.scrollTo(anchor, anchor: .bottom)
+                    } label: {
+                        Label("Jump to latest", systemImage: "arrow.down")
+                            .font(.parfait(11, .semibold))
+                            .foregroundStyle(Theme.ink(scheme))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Theme.surface(scheme), in: Capsule())
+                            .overlay(Capsule().strokeBorder(.primary.opacity(0.08)))
+                            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 12)
+                }
+            }
+    }
+}
+
+extension View {
+    func liveTranscriptPinning(
+        anchor: String, segmentCount: Int, volatileText: String, proxy: ScrollViewProxy
+    ) -> some View {
+        modifier(LiveTranscriptPinning(
+            anchor: anchor, segmentCount: segmentCount, volatileText: volatileText, proxy: proxy))
+    }
+}
+
 /// Minimal markdown display for summaries: headings, bullets, checkboxes,
 /// inline bold/italic. Anything else renders as a plain paragraph.
 struct MarkdownText: View {

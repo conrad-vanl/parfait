@@ -6,10 +6,6 @@ struct NotesTab: View {
     /// Owned by MeetingDetailView so tab switches can't drop an unsaved edit.
     @Binding var draft: String?
 
-    /// Read fresh from disk on every appearance — followups.json is written by
-    /// Claude in a separate MCP process, so a cached copy would go stale.
-    @State private var followups: [Followup] = []
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -63,36 +59,7 @@ struct NotesTab: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-
-            if !followups.isEmpty {
-                Divider()
-                followupsSection
-            }
         }
-        .onAppear { followups = app.store.followups(for: meeting.id) }
-        .onChange(of: meeting.id) { followups = app.store.followups(for: meeting.id) }
-    }
-
-    /// Read-only glance at this meeting's items — the Follow-ups tab is where
-    /// they get edited. The one action here hands this meeting's open items to
-    /// Claude (the followups skill).
-    private var followupsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Follow-ups")
-                .font(.parfait(13, .semibold))
-            ForEach(followups) { FollowupRow(item: $0) }
-            Button {
-                ClaudeLink.openFollowups(scope: .meeting(id: meeting.id, title: meeting.title))
-            } label: {
-                Label("Work on these with Claude", systemImage: "sparkles")
-                    .font(.parfait(12, .medium))
-            }
-            .buttonStyle(.borderless)
-            .padding(.top, 2)
-        }
-        .frame(maxWidth: 660, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 
     private var summary: String { app.store.summary(for: meeting.id) }
@@ -387,14 +354,86 @@ struct TranscriptTab: View {
     }
 }
 
+/// This meeting's slice of the follow-ups queue, with the same editable cards
+/// as the global Follow-ups view: fix the instructions, mark Done/Dismiss, or
+/// hand items to Claude without leaving the meeting.
+struct MeetingFollowupsTab: View {
+    @EnvironmentObject private var app: AppState
+    let meeting: Meeting
+
+    /// Read fresh from disk on every appearance and app activation —
+    /// followups.json is also written by Claude in a separate MCP process,
+    /// so a cached copy would go stale.
+    @State private var items: [Followup] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if items.isEmpty {
+                EmptyStateView(
+                    title: "No follow-ups for this meeting",
+                    message: "Follow-ups are extracted when the meeting's notes are generated.")
+            } else {
+                header
+                list
+            }
+        }
+        .onAppear { reload() }
+        .onChange(of: meeting.id) { reload() }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification)) { _ in reload() }
+    }
+
+    /// Open items first — they're what needs curating; done/dismissed stay
+    /// below as the meeting's record.
+    private func reload() {
+        let all = app.store.followups(for: meeting.id)
+        items = all.filter(\.isOpen) + all.filter { !$0.isOpen }
+    }
+
+    private var openCount: Int { items.filter(\.isOpen).count }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Text(openCount == 1 ? "1 open item" : "\(openCount) open items")
+                .font(.parfait(12))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button {
+                ClaudeLink.openFollowups(scope: .meeting(id: meeting.id, title: meeting.title))
+            } label: {
+                Label("Work on these with Claude", systemImage: "sparkles")
+                    .font(.parfait(12, .medium))
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.raspberry)
+            .disabled(openCount == 0)
+            .help("Hand this meeting's open follow-ups to Claude in one chat")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+    }
+
+    private var list: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(items) { item in
+                    FollowupItemCard(meetingID: meeting.id, item: item, onMutate: reload)
+                }
+            }
+            .frame(maxWidth: 660, alignment: .leading)
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 /// Read-only live transcript shown in the Transcript tab while a meeting is being
 /// recorded (and mirrored by the floating recording card). Observes the session so
 /// it updates in real time; the accurate, diarized transcript replaces it once
 /// processing finishes.
 struct LiveTranscriptView: View {
     @ObservedObject var session: RecordingSession
-    @Environment(\.colorScheme) private var scheme
-    @State private var followsLive = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -439,39 +478,11 @@ struct LiveTranscriptView: View {
                         .padding(20)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    // Follow new content only while the user is at (or near) the bottom; scrolling
-                    // up holds their place until they scroll back down or tap "Jump to latest".
-                    .onScrollGeometryChange(for: Bool.self) { geo in
-                        geo.contentOffset.y + geo.containerSize.height >=
-                            geo.contentSize.height + geo.contentInsets.bottom - 40
-                    } action: { _, nearBottom in
-                        followsLive = nearBottom
-                    }
-                    .onChange(of: session.liveSegments.count) {
-                        if followsLive { proxy.scrollTo("live-bottom", anchor: .bottom) }
-                    }
-                    .onChange(of: session.volatileText) {
-                        if followsLive { proxy.scrollTo("live-bottom", anchor: .bottom) }
-                    }
-                    .overlay(alignment: .bottom) {
-                        if !followsLive {
-                            Button {
-                                followsLive = true
-                                proxy.scrollTo("live-bottom", anchor: .bottom)
-                            } label: {
-                                Label("Jump to latest", systemImage: "arrow.down")
-                                    .font(.parfait(11, .semibold))
-                                    .foregroundStyle(Theme.ink(scheme))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Theme.surface(scheme), in: Capsule())
-                                    .overlay(Capsule().strokeBorder(.primary.opacity(0.08)))
-                                    .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.bottom, 12)
-                        }
-                    }
+                    .liveTranscriptPinning(
+                        anchor: "live-bottom",
+                        segmentCount: session.liveSegments.count,
+                        volatileText: session.volatileText,
+                        proxy: proxy)
                 }
             }
         }
