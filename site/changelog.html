@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Changelog — Parfait</title>
+<meta name="description" content="What's changed in Parfait since the first release — the app, the site, and the notes service. Newest first.">
+<link rel="canonical" href="https://parfait.to/changelog">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFF9F2">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#252017">
+<style>
+:root{
+  --page:#FFF9F2; --card:#FBF1E4; --accent:#E0396B; --accent-solid:#C22855;
+  --link:#5A6ACF; --ink:#43322B;
+  --muted:rgba(67,50,43,.78); --border:rgba(67,50,43,.12);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --page:#252017; --card:#322B27; --accent:#F0708F; --accent-solid:#F0708F;
+    --link:#98A4EE; --ink:#F2E9DE;
+    --muted:rgba(242,233,222,.6); --border:rgba(242,233,222,.14);
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--page); color:var(--ink);
+  font:400 1.0625rem/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+.parfait-bar{
+  height:6px;
+  background:linear-gradient(90deg,#FFF9F2 0 25%,#F2A93B 25% 50%,#E0396B 50% 75%,#5A6ACF 75% 100%);
+}
+main{max-width:660px; margin:0 auto; padding:0 24px}
+a{color:var(--link); text-underline-offset:3px}
+a:focus-visible{outline:2px solid var(--link); outline-offset:2px; border-radius:4px}
+::selection{background:rgba(224,57,107,.18)}
+header{padding:56px 0 8px}
+.home{font-size:.9rem; text-decoration:none}
+h1{
+  margin:18px 0 8px;
+  font-family:ui-serif, "New York", Georgia, serif;
+  font-size:clamp(2rem, 6vw, 2.6rem); line-height:1.12; font-weight:600;
+  letter-spacing:-.015em;
+}
+.sub{margin:0 0 8px; color:var(--muted); font-size:1rem; text-wrap:pretty}
+section.day{padding:26px 0 6px}
+h2{
+  margin:0 0 14px; color:var(--accent-solid);
+  font-size:.82rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+}
+ul.entries{list-style:none; margin:0; padding:0; display:grid; gap:14px}
+.entry{text-wrap:pretty}
+.entry b{font-weight:650}
+.entry.internal{color:var(--muted); font-size:.9rem}
+.sha{
+  font:600 .72rem/1 ui-monospace, "SF Mono", Menlo, monospace;
+  color:var(--muted); text-decoration:none;
+  border:1px solid var(--border); border-radius:6px; padding:2px 6px;
+  margin-left:6px; white-space:nowrap; vertical-align:1px;
+}
+.sha:hover{color:var(--link); border-color:var(--link)}
+.release{
+  background:var(--card); border:1px solid var(--border); border-radius:16px;
+  padding:20px 24px; margin-top:6px;
+}
+.release .entry b{font-weight:700}
+footer{
+  margin-top:48px; padding:36px 24px 48px; text-align:center;
+  color:var(--muted); font-size:.9rem; border-top:1px solid var(--border);
+}
+footer p{margin:.4em 0}
+</style>
+</head>
+<body>
+<div class="parfait-bar" aria-hidden="true"></div>
+
+<main>
+  <header>
+    <a class="home" href="/">← parfait.to</a>
+    <h1>Changelog</h1>
+    <p class="sub">What's changed in Parfait since the first release — the app, the site, and the notes service. Newest first.</p>
+  </header>
+
+  <section class="day">
+    <h2>July 22, 2026</h2>
+    <ul class="entries">
+      <li class="entry"><b>A new homepage story, and this changelog.</b> The site and README now lead with what Parfait became — the notetaker that follows through: follow-ups pulled out of every meeting, curated once, done by Claude. And this page is new: every significant change lands here, commit by commit.</li>
+      <li class="entry"><b>Choose whether shared pages include the transcript.</b> The Share menu now offers "Create shareable link" alongside an "Include transcript" toggle, so you can publish the notes while keeping the full transcript off shared pages. The choice applies everywhere a page is produced — publish, preview, export, and publishing through Claude. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/475b579">475b579</a></li>
+      <li class="entry"><b>Shared pages show follow-ups anyone can hand to Claude.</b> Published meeting pages now carry a rail of follow-up cards, and every open item gets a "Hand to Claude" button that works for any viewer — no Parfait install needed. In the app, the follow-up queue and badge focus on your own items plus unassigned ones, with "Show everyone's" to reveal the rest. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/7cbe91c">7cbe91c</a></li>
+    </ul>
+  </section>
+
+  <section class="day">
+    <h2>July 21, 2026</h2>
+    <ul class="entries">
+      <li class="entry"><b>One meeting card that carries you from upcoming to recording.</b> A single floating card now morphs from upcoming calendar meeting to detected call to active recording, appearing before events with Join &amp; record, Start recording, and Get the scoop (join links extracted for Zoom, Meet, Teams, Webex, and more) — and recordings pick up the right title from your calendar. Also: follow-up suggestions are held to a higher quality bar, each meeting gains its own Follow ups tab, and the live transcript no longer unpins itself as text streams in. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/7f0a49e">7f0a49e</a></li>
+      <li class="entry"><b>Follow-ups extracted automatically, curated in the app, handed off once.</b> Parfait now pulls suggested follow-ups out of your meeting the moment notes are written — no extra step — and a new cross-meeting Follow-ups queue lets you edit each item's instructions, mark items done, or dismiss them. "Work on my follow-ups with Claude" is the single hand-off: the /parfait:followups skill (replacing dig-in) works each curated item through your connectors and records results back. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/fe5b172">fe5b172</a></li>
+    </ul>
+  </section>
+
+  <section class="day">
+    <h2>July 20, 2026</h2>
+    <ul class="entries">
+      <li class="entry"><b>One-click plugin setup, and follow-ups saved with every meeting.</b> Parfait can now install and update its Claude plugin for you, with onboarding and Settings simplified to a single "Claude plugin" step. Each meeting stores its own follow-ups, and Claude gets new tools (get_followups, save_followups, publish_meeting) plus a first cut of an interactive follow-up card for Claude — rebuilt the next day to render correctly. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/d08a663">d08a663</a></li>
+      <li class="entry"><b>Parfait becomes a Claude plugin with three assistant skills.</b> Install Parfait as a Claude plugin and get executive-assistant skills in Claude Desktop and Claude Code: turning a meeting's commitments into follow-ups, /parfait:scoop for a brief before a meeting, and /parfait:digest for a weekly rollup. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/b4e34f0">b4e34f0</a></li>
+      <li class="entry internal">Planning: the Claude-plugin design doc, no app changes. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/946a466">946a466</a></li>
+      <li class="entry"><b>Speakers get real names automatically, plus a steadier live transcript.</b> Parfait now names diarized speakers from your calendar attendees as a meeting is processed, offers a merge when you rename two speakers to the same person, and quietly rewrites existing notes to use the new names. The live transcript only follows along while you're at the bottom — a "Jump to latest" chip brings you back — and an opt-in experiment can identify participants from mid-meeting screenshots. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/f669ec0">f669ec0</a></li>
+    </ul>
+  </section>
+
+  <section class="day">
+    <h2>July 10, 2026</h2>
+    <ul class="entries">
+      <li class="entry"><b>Meeting notes in seconds, not minutes.</b> When you stop recording, notes now appear within seconds — drafted from the live transcript and written onto the screen as they're generated. A second pass then quietly refines them against the accurate transcript (a "Draft · improving" badge shows the hand-off), and it never overwrites edits you've made in the meantime. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/18c823b">18c823b</a></li>
+      <li class="entry"><b>Live transcript stops mistaking the other person for you.</b> On speakers instead of headphones, the other side's voice can leak into your mic and used to show up a second time labeled as you. Those echoed lines are now detected and dropped as they happen, matching the cleanup the saved transcript already had. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/83dba81">83dba81</a></li>
+      <li class="entry"><b>Removed the echo-cancellation setting that broke recordings.</b> The "cancel echo from your speakers" option added earlier the same day could silently record nothing, so it was pulled. Echo still gets cleaned up — at the transcript level, without touching your audio. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/ce9d946">ce9d946</a></li>
+      <li class="entry"><b>Cleaner transcripts and faster mid-meeting answers.</b> Speech echoing from your speakers into the mic is removed instead of being transcribed twice, one-on-one calls no longer get split into phantom extra speakers, and a new "Always use Claude for summaries" setting picks your preferred summarizer. Asking Claude mid-meeting is snappier too — it reads just the recent transcript by default and aims for quick answers. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/e5e1d8d">e5e1d8d</a></li>
+      <li class="entry internal">Homepage copy tweak: dropped the footer note about the demo windows being HTML re-creations. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/ceb3de6">ceb3de6</a></li>
+      <li class="entry"><b>New homepage: see Parfait in action.</b> parfait.to was rebuilt around a live product demo — recording, finished notes, asking Claude during a meeting, and a published page — with plainer, friendlier copy throughout. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/41527c3">41527c3</a></li>
+      <li class="entry"><b>Simpler Ask Claude prompts.</b> Handing a question to Claude from your library or mid-meeting now sends a plain, natural prompt instead of tool-usage instructions — Claude already knows how to reach your meetings and picks the right tools itself. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/b1a84eb">b1a84eb</a></li>
+      <li class="entry"><b>Dismissable recording card, and launch at login.</b> The floating recording card gains a close button and can be brought back anytime from the menu bar ("Show live transcript card"). A new "Launch Parfait at login" toggle means Parfait is waiting in your menu bar when you sit down. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/91b478d">91b478d</a></li>
+    </ul>
+  </section>
+
+  <section class="day">
+    <h2>July 9, 2026</h2>
+    <ul class="entries">
+      <li class="entry"><b>Claude can edit and regenerate your meeting notes.</b> Two new MCP tools, update_summary and regenerate_summary, let Claude rewrite a meeting's notes or re-summarize it from the transcript — optionally against a different template — so you can ask Claude to fix or redo a summary directly. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/2ce244f">2ce244f</a></li>
+      <li class="entry"><b>Live transcription, with Ask Claude mid-meeting.</b> The transcript now appears in real time while you're recording — your side labeled "You", the other side "Others" — in the Transcript tab and a floating recording card. A new "Ask Claude live" button (backed by the get_live_transcript tool) lets Claude answer questions about the meeting while it's still happening. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/a1db3c5">a1db3c5</a></li>
+      <li class="entry"><b>Shorter, more private share links.</b> Published note links are now a single compact token on notes.parfait.to instead of a long URL that exposed your GitHub username and gist details — noticeably shorter, and still pointing permanently at the exact version you published. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/513fe91">513fe91</a></li>
+      <li class="entry"><b>One-click Claude setup, plus a round of polish.</b> Settings and onboarding gain buttons that open a Claude Code session to connect Parfait for you, instead of asking you to copy terminal commands (the raw commands remain in a disclosure). Published notes now always go to notes.parfait.to, and the Claude handoff prompts are simpler. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/77fbe3e">77fbe3e</a></li>
+      <li class="entry"><b>Parfait now runs under macOS Hardened Runtime.</b> Builds are signed with Apple's Hardened Runtime protections by default, declaring only the two permissions Parfait actually needs — microphone and calendar — laying the groundwork for notarized downloads. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/d320382">d320382</a></li>
+      <li class="entry internal">Deploy housekeeping: kept build artifacts and local tool state out of site deploys, fixed the automated site deployment, and wired the abuse blocklist into the notes service. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/bdeba65">bdeba65</a> <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/6d725da">6d725da</a> <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/39633c8">39633c8</a> <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/3e92f59">3e92f59</a></li>
+      <li class="entry"><b>Clearer wording for what notifications do.</b> The notification descriptions in onboarding and Settings now say exactly what Parfait's one notification does: tell you when a recording has finished processing and your notes are ready. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/7cb269c">7cb269c</a></li>
+      <li class="entry"><b>Fewer redundant alerts; tapping a notification opens your notes.</b> With the floating card, chime, and menu-bar cue announcing detected meetings, the duplicate system notification for detection was removed — and the one remaining "notes are ready" notification now opens that meeting when tapped. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/d3f3e3a">d3f3e3a</a></li>
+      <li class="entry"><b>A floating "Record this meeting?" card appears automatically.</b> When Parfait detects a meeting, a small card now appears on its own just below the menu bar with Record and Dismiss buttons — no clicking into the menu-bar icon first. It never steals focus from your call and shows even over full-screen meeting apps. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/ce215fa">ce215fa</a></li>
+      <li class="entry"><b>Smarter detection when multiple apps use the microphone.</b> If two apps are on the mic at once (a browser tab alongside Zoom, say), Parfait tracks each one, so the record prompt no longer vanishes when one hangs up while your meeting is still going. A brief microphone reconnect no longer re-fires the chime and notification for a meeting you were just prompted about. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/2699e7e">2699e7e</a></li>
+      <li class="entry"><b>A chime and menu-bar cue when a meeting is detected.</b> Detection now plays a short chime and switches the menu-bar icon to an attention glyph, so the prompt is hard to miss even with Focus on. Also cleans up a stray "System Audio Recording" indicator that could linger after a force-quit. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/794b426">794b426</a></li>
+      <li class="entry"><b>Fixed transcription failing when a recording stopped automatically.</b> Auto-stopped recordings could have their transcription cancelled along with them, leaving no notes; they now process reliably. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/f9dd6c9">f9dd6c9</a></li>
+      <li class="entry"><b>Notifications permission added to onboarding.</b> A new step shows your real permission status with a Grant button, or a shortcut to System Settings if you've previously denied it. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/c328b8c">c328b8c</a></li>
+      <li class="entry"><b>Meetings that start after Parfait is running are now detected.</b> A macOS quirk meant Parfait could miss a meeting app turning on the microphone if Parfait was already open. It now re-checks microphone activity every couple of seconds, so meetings are noticed no matter when they start. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/26f86ab">26f86ab</a></li>
+      <li class="entry"><b>Parfait gets a public home, and shared notes move to notes.parfait.to.</b> The parfait.to one-pager launches, and published notes are served from notes.parfait.to — a first-party, tracker-free host with strict security headers, size limits, and bounded caching so deleted notes actually stop being served — replacing the third-party gist viewer. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/010bff5">010bff5</a> <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/d839c6c">d839c6c</a></li>
+      <li class="entry internal">Planning: docs for the parfait.to site and first-party notes hosting, no app changes. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/8b7ff08">8b7ff08</a></li>
+      <li class="entry"><b>Ask Claude now opens directly in Claude Desktop.</b> The per-meeting Ask Claude surface and "Ask your meetings" open a new Claude Desktop conversation pre-filled with your question and pointed at your Parfait meetings, replacing the previous in-app chat — and the app guides you through setup if Claude Desktop isn't installed. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/38c0ed5">38c0ed5</a></li>
+      <li class="entry"><b>Onboarding readable in dark mode, honest system-audio status.</b> The welcome screen no longer shows invisible text in dark mode, and the System Audio Recording check turns green once Parfait actually captures real audio instead of showing an unknown status forever. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/19e96b8">19e96b8</a></li>
+      <li class="entry"><b>First-run setup, smarter auto-stop, and Claude Desktop connection.</b> A new onboarding walkthrough checks your mic, system audio, calendar, and Claude access; Settings gains copy-paste Claude Desktop connector setup plus MCP tools that let Claude manage your summary templates. Recording auto-stops shortly after the meeting app releases the mic, the level meter reflects normal speech, and speaker detection is capped near the invite-list size so extra speakers aren't invented. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/00153cd">00153cd</a></li>
+      <li class="entry"><b>Preview your notes page in the browser.</b> The short-lived public-link host turned out to show raw page source in real browsers, so it was removed the same day. In its place, "Preview in browser" opens the fully styled notes page locally without uploading anything. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/95113b0">95113b0</a></li>
+      <li class="entry"><b>Simpler publishing and quieter AI badges.</b> Removed the Claude Artifact publish option, which could never work from the app, in favor of a no-install public link; since on-device processing is the default, badges now appear only on output produced by Claude. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/88495d4">88495d4</a></li>
+      <li class="entry"><b>Follow-up fixes to the stability pass.</b> Meetings no longer vanish from the list until relaunch after a temporary save error, renaming a template to change only its capitalization works, chat recovers from a stale session, and recovered recordings keep their correct duration. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/84b415a">84b415a</a></li>
+      <li class="entry"><b>Stability and reliability pass.</b> Transcript edits are no longer lost when switching tabs, in-progress recordings are saved if you quit mid-meeting, failed meetings get a working Retry button, mic and system audio stay in sync from the same starting point, and a subprocess exiting unexpectedly can no longer crash the app. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/af8c9a4">af8c9a4</a></li>
+    </ul>
+  </section>
+
+  <section class="day">
+    <h2>July 9, 2026 — Initial release</h2>
+    <div class="release">
+      <p class="entry" style="margin:0"><b>Parfait 0.1.</b> A menu-bar notetaker for macOS that detects meetings, records both sides of the call (your mic plus system audio — no bots, no virtual drivers), transcribes and tells speakers apart on device, and writes templated notes with Apple Intelligence. Every meeting is stored as plain files, publishable as a shareable page, and readable by Claude through a built-in MCP server. <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/8f01b2b">8f01b2b</a> <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/9a50eaa">9a50eaa</a> <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/ce52ad0">ce52ad0</a> <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/9b45409">9b45409</a> <a class="sha" href="https://github.com/conrad-vanl/parfait/commit/7d92c5f">7d92c5f</a></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p><a href="/">parfait.to</a> · <a href="https://github.com/conrad-vanl/parfait">GitHub</a> · <a href="https://github.com/conrad-vanl/parfait/issues">Issues</a> · <a href="/legal">Acceptable Use</a> · MIT License</p>
+  <p>No analytics, no trackers, no third-party scripts.</p>
+</footer>
+</body>
+</html>

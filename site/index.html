@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Parfait: Layered meeting notes. Perfectly local.</title>
-<meta name="description" content="A free, open-source meeting notetaker for macOS. It records both sides of your calls, writes up the notes on your Mac, and lets you ask Claude about any meeting, even one that's still going.">
+<title>Parfait: The meeting notetaker that follows through.</title>
+<meta name="description" content="A free, open-source meeting notetaker for macOS. Meetings recorded and transcribed entirely on your Mac, follow-ups pulled out of every one — and Claude to actually do them, through your own accounts.">
 <link rel="canonical" href="https://parfait.to/">
 <link rel="icon" type="image/png" href="/favicon.png">
-<meta property="og:title" content="Parfait: Layered meeting notes. Perfectly local.">
-<meta property="og:description" content="A free, open-source meeting notetaker for macOS. A private alternative to Granola, with Claude built in.">
+<meta property="og:title" content="Parfait: The meeting notetaker that follows through.">
+<meta property="og:description" content="Notes on your Mac. Follow-through by Claude. A free, open-source meeting notetaker for macOS.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://parfait.to">
 <meta property="og:image" content="https://parfait.to/og-image.png">
@@ -87,17 +87,6 @@ h1 .local{color:var(--accent)}
 }
 .cta:hover{background:var(--accent-hover)}
 .cta-secondary{font-weight:600; font-size:1rem}
-.requirements{margin:26px 0 0; color:var(--muted); font-size:.875rem}
-.soon{
-  display:inline-flex; align-items:center; gap:8px; margin:16px auto 0;
-  padding:7px 14px; border-radius:999px; font-size:.85rem; color:var(--muted);
-  background:var(--card); border:1px solid var(--border);
-}
-.soon b{color:var(--ink); font-weight:650}
-.soon .tag{
-  font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
-  color:var(--btn-text); background:var(--accent-solid); padding:2px 7px; border-radius:5px;
-}
 .pre-note{margin:0 0 14px; color:var(--muted); font-size:.95rem}
 .cc-callout{display:block; margin-top:16px; padding:12px 16px; border:1px solid var(--border); border-left:3px solid var(--link); border-radius:10px; background:var(--card); font-size:.98rem; color:var(--ink); text-decoration:none; transition:border-color .15s ease}
 .cc-callout:hover{border-color:var(--link)}
@@ -136,7 +125,7 @@ ol.steps li{display:flex; gap:16px; align-items:baseline}
   display:flex; align-items:center; justify-content:center; align-self:flex-start;
   font-size:.85rem; font-weight:700; color:#43322B;
 }
-.n1{background:#F6E3C5}.n2{background:#F2A93B}.n3{background:#F5B8CB}.n4{background:#C3CAF0}
+.n1{background:#F6E3C5}.n2{background:#F2A93B}.n3{background:#F5B8CB}.n4{background:#C3CAF0}.n5{background:#A9DDC3}
 ol.steps b{font-weight:650}
 
 /* ================= DEMO / MOCKUPS ================= */
@@ -177,34 +166,27 @@ ol.steps b{font-weight:650}
   margin-right:46px; /* balance the 3 lights on the left */
 }
 
-/* brand glass mark (the layered-parfait motif from the app) */
-.glass{
-  width:15px; height:19px; border-radius:3px 3px 7px 7px; display:inline-block;
-  vertical-align:-3px; border:1px solid rgba(67,50,43,.18);
-  background:linear-gradient(#FFF9F2 0 25%,#F2A93B 25% 50%,#E0396B 50% 75%,#5A6ACF 75% 100%);
+/* follow-up cards (hero demo + published page) */
+.fu{
+  background:var(--m-card); border:1px solid var(--m-border); border-radius:10px;
+  padding:10px 12px; margin-bottom:8px;
 }
-
-/* menu-bar popover */
-.menubar{
-  display:flex; align-items:center; gap:16px; justify-content:flex-end;
-  padding:5px 14px; margin:0 0 -8px; font-size:.72rem; color:var(--m-muted);
+.fu b{display:block; font-size:.82rem; font-weight:650; line-height:1.3}
+.fu .fu-note{display:block; font-size:.72rem; color:var(--m-muted); margin:3px 0 8px}
+.fu .fu-note.ph{font-style:italic}
+.fu-btns{display:flex; gap:6px; flex-wrap:wrap}
+.fu-b{
+  font:600 .68rem/1 ui-rounded,"SF Pro Rounded",system-ui,sans-serif;
+  border:1px solid var(--m-border); border-radius:6px; padding:4px 9px; color:var(--m-muted);
 }
-.pop{
-  width:300px; background:var(--m-surface); border:1px solid var(--m-border);
-  border-radius:14px; box-shadow:var(--m-shadow); padding:14px; color:var(--m-ink);
+.fu-b.claude{color:var(--link); border-color:color-mix(in srgb,var(--link) 45%,transparent)}
+.fu-cap{font-size:.66rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--m-muted); margin:12px 0 6px}
+.fu-cap:first-of-type{margin-top:0}
+.count{
+  margin-left:auto; font-size:.66rem; font-weight:700; color:#fff;
+  background:var(--accent-solid); border-radius:999px; padding:1px 7px;
 }
-.pop-head{display:flex; align-items:center; gap:8px; font-weight:700; font-size:.95rem; margin-bottom:12px}
-.pop-head .sp{flex:1}
-.pop-head .gear{color:var(--m-muted)}
-.reclabel{font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--m-muted); margin:4px 2px 6px}
-.mrow{display:flex; align-items:center; gap:8px; padding:6px 6px; border-radius:8px}
-.mrow:hover{background:var(--m-inset)}
-.mrow .mt{flex:1; min-width:0}
-.mrow .mt b{display:block; font-size:.82rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.mrow .mt span{font-size:.7rem; color:var(--m-muted)}
-.pop-foot{display:flex; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--m-border); font-size:.8rem}
-.pop-foot .open{color:var(--link); font-weight:600}
-.pop-foot .sp{flex:1}
+.hand{font-size:.68rem; font-weight:700; color:var(--link); margin-left:6px; white-space:nowrap}
 
 /* buttons in mockups */
 .mbtn{
@@ -214,20 +196,10 @@ ol.steps b{font-weight:650}
 }
 .mbtn.block{width:100%; justify-content:center; padding:9px 12px}
 .mbtn.ghost{background:transparent; color:var(--m-ink); border:1px solid var(--m-border)}
-.mbtn.icon{padding:8px 10px}
 
-/* record dot + level meter */
+/* record dot */
 .rec{width:10px; height:10px; border-radius:50%; background:var(--accent); flex:none; animation:pulse 1.8s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1; transform:scale(1)}50%{opacity:.4; transform:scale(.92)}}
-.meter{display:flex; align-items:flex-end; gap:3px; height:16px}
-.meter i{width:4px; border-radius:2px; background:var(--mint); height:5px; transform-origin:bottom; animation:bob 1.1s ease-in-out infinite}
-.meter i:nth-child(1){animation-delay:0s}.meter i:nth-child(2){animation-delay:.09s}
-.meter i:nth-child(3){animation-delay:.18s}.meter i:nth-child(4){animation-delay:.27s}
-.meter i:nth-child(5){animation-delay:.36s}.meter i:nth-child(6){animation-delay:.45s}
-.meter i:nth-child(7){animation-delay:.30s}.meter i:nth-child(8){animation-delay:.15s}
-.meter i:nth-child(9){animation-delay:.05s}.meter i:nth-child(10){animation-delay:.22s}
-.meter i:nth-child(11){animation-delay:.12s}.meter i:nth-child(12){animation-delay:.34s}
-@keyframes bob{0%,100%{transform:scaleY(.35)}50%{transform:scaleY(2.4)}}
 
 /* floating cards (detection prompt / live recording) */
 .fcard{
@@ -236,9 +208,7 @@ ol.steps b{font-weight:650}
 }
 .fcard .row{display:flex; align-items:center; gap:8px}
 .fcard h4{margin:0; font-size:.95rem; font-weight:700}
-.fcard .sub{margin:8px 0 12px; font-size:.82rem; color:var(--m-muted)}
 .fcard .btns{display:flex; gap:8px}
-.close{margin-left:auto; color:var(--m-muted); font-size:.95rem; line-height:1; cursor:default}
 .tbox{
   background:var(--m-card); border-radius:8px; padding:11px 12px; margin:11px 0;
   height:172px; overflow:hidden; display:flex; flex-direction:column; gap:10px;
@@ -293,9 +263,6 @@ ol.steps b{font-weight:650}
 .metaline .dot{opacity:.5}
 .chips{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px}
 .chip{font-size:.7rem; font-weight:600; padding:3px 9px; border-radius:999px; background:color-mix(in srgb,var(--honey) 20%,transparent); color:var(--m-ink)}
-.badge{font-size:.68rem; font-weight:700; padding:2px 8px; border-radius:999px; display:inline-flex; align-items:center; gap:4px}
-.badge.claude{color:var(--link); background:color-mix(in srgb,var(--link) 16%,transparent)}
-.badge.rec{color:var(--accent); background:color-mix(in srgb,var(--accent) 14%,transparent)}
 
 /* segmented control */
 .seg{display:inline-flex; background:var(--m-inset); border:1px solid var(--m-border); border-radius:8px; padding:2px; gap:2px; margin-bottom:16px}
@@ -303,7 +270,6 @@ ol.steps b{font-weight:650}
 .seg span.on{background:var(--m-surface); color:var(--m-ink); box-shadow:0 1px 3px rgba(0,0,0,.12)}
 
 /* notes markdown */
-.tpl{display:inline-flex; align-items:center; gap:6px; font-size:.76rem; color:var(--m-muted); margin-bottom:12px}
 .md{font-size:.84rem; line-height:1.55}
 .md .h2{color:var(--accent-solid); font-weight:800; font-size:.95rem; margin:14px 0 5px}
 .md .h2:first-child{margin-top:0}
@@ -313,18 +279,7 @@ ol.steps b{font-weight:650}
 .md .b .ck{color:var(--honey); flex:none; font-weight:800; width:14px}
 .md strong{font-weight:750}
 
-/* ask claude tab + claude answer */
-.ask-grid{display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start}
-.ask-pane h5{margin:0 0 3px; font-size:.98rem; font-weight:700}
-.ask-pane .psub{margin:0 0 14px; font-size:.76rem; color:var(--m-muted)}
-.field{
-  display:flex; align-items:center; gap:8px; background:var(--m-card);
-  border:1px solid var(--m-border); border-radius:10px; padding:5px 5px 5px 12px;
-}
-.field .ph{flex:1; font-size:.8rem; color:var(--m-ink)}
-.tip{margin-top:12px; font-size:.72rem; color:var(--m-muted); line-height:1.5}
-.claude-win{background:var(--m-card); border:1px solid var(--m-border); border-radius:12px; overflow:hidden}
-.claude-top{display:flex; align-items:center; gap:7px; padding:9px 12px; border-bottom:1px solid var(--m-border); font-size:.78rem; font-weight:700}
+/* claude answer window */
 .spark{color:var(--honey)}
 .claude-body{padding:12px 14px; font-size:.8rem; line-height:1.5}
 .qbub{background:color-mix(in srgb,var(--link) 12%,transparent); border-radius:10px; padding:8px 11px; margin-bottom:10px; font-size:.78rem}
@@ -350,20 +305,11 @@ ol.steps b{font-weight:650}
 .pub-inner h4{margin:0 0 4px; font-size:1.15rem; font-weight:800; font-family:ui-serif,"New York",Georgia,serif}
 .pub-inner .pmeta{font-size:.72rem; color:var(--m-muted); margin-bottom:14px}
 
-/* live-transcript banner used in the transcript tab */
-.live-banner{display:flex; align-items:center; gap:7px; font-size:.72rem; color:var(--m-muted); margin-bottom:12px}
-
-/* stage layering: main window with the menu-bar popover dropped into the corner */
-.stage{position:relative}
-.stage .win.app{position:relative; z-index:1}
-.stage .float-pop{position:absolute; right:-6px; top:-26px; z-index:3; width:300px}
-.pop .row{display:flex; align-items:center; gap:8px}
-.mrow .mt{line-height:1.25}
 .side-mtg{line-height:1.25}
-.rec-card{background:var(--m-card); border:1px solid var(--m-border); border-radius:10px; padding:12px}
-.rec-card .stop{display:inline-block; width:9px; height:9px; background:#fff; border-radius:2px}
-/* two-window Ask-Claude-live demo: narrow live card, wider Claude, equal height */
+/* two-window demos: Ask-Claude-live (narrow card + wider Claude) and the hero follow-ups handoff */
 .two-win{display:grid; grid-template-columns:0.8fr 1.2fr; gap:20px; align-items:stretch}
+.two-win.fu-demo{grid-template-columns:1.15fr .85fr}
+.two-win .win.app{min-width:0}
 .two-win .fcard{width:auto; display:flex; flex-direction:column}
 .two-win .fcard .tbox{flex:1 1 auto; height:auto; min-height:150px}
 .two-win .claude-app{display:flex; flex-direction:column}
@@ -378,11 +324,8 @@ footer{
 footer p{margin:.4em 0}
 
 /* ---- responsive ---- */
-@media (max-width:900px){
-  .stage .float-pop{position:static; width:100%; margin-top:16px}
-}
 @media (max-width:720px){
-  .ask-grid, .two-win{grid-template-columns:1fr}
+  .two-win, .two-win.fu-demo{grid-template-columns:1fr}
   .app-body{grid-template-columns:1fr}
   .sidebar{display:none}
 }
@@ -403,66 +346,73 @@ footer p{margin:.4em 0}
   <header class="hero">
     <div class="hero-wash" aria-hidden="true"></div>
     <img src="icon.png" alt="Parfait app icon, a layered parfait glass" width="112" height="112">
-    <h1>Layered meeting notes.<br><span class="local">Perfectly local.</span></h1>
-    <p class="subhead">Parfait notices when a meeting starts, records both sides, and writes it up in your own template with the speakers named. Then ask Claude about any meeting, even one that's still going.</p>
-    <p class="hero-small">Everything runs on your Mac. Free and open source.</p>
+    <h1>The meeting notetaker<br><span class="local">that follows through.</span></h1>
+    <p class="subhead">Parfait records and transcribes your meetings entirely on your Mac, and writes the notes in your own template. Then it pulls out the follow-ups — and Claude actually does them, through your own email, calendar, and issue tracker, reporting back when it's done.</p>
+    <p class="hero-small">Lives in your menu bar. Free, open source, local-first.</p>
     <div class="cta-row">
       <a class="cta" href="https://github.com/conrad-vanl/parfait">View on GitHub</a>
       <a class="cta-secondary" href="#install">How to install ↓</a>
     </div>
   </header>
 
-<!-- ============ HERO DEMO: the product in action ============ -->
-<section class="demo-band" aria-label="Parfait in action" data-animate>
-  <div class="stage ui">
-    <!-- main window, mid-meeting, live transcript tab -->
-    <div class="win app">
+<!-- ============ HERO DEMO: the follow-ups queue handed to Claude ============ -->
+<section class="demo-band" aria-label="Follow-ups curated in Parfait, then worked by Claude" data-animate>
+  <div class="stage ui two-win fu-demo" style="max-width:940px">
+    <!-- Parfait main window: the Follow-ups queue -->
+    <div class="win app" role="img" aria-label="Parfait's Follow-ups queue with editable items">
       <div class="titlebar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="tt">Parfait</span></div>
       <div class="app-body">
         <aside class="sidebar">
           <div class="search"><span>⌕</span><span>Filter meetings</span></div>
-          <div class="side-item ask"><span>❝</span><span>Ask your meetings</span></div>
+          <div class="side-item ask"><span>☑</span><span>Follow-ups</span><span class="count">3</span></div>
           <div class="side-cap">Meetings</div>
-          <div class="side-mtg on"><b>Roadmap sync</b><span>Jul 9 · 2:00 PM · recording</span></div>
+          <div class="side-mtg"><b>Roadmap sync</b><span>Jul 9 · 2:00 PM</span></div>
           <div class="side-mtg"><b>Design review</b><span>Jul 8 · 11:00 AM</span></div>
-          <div class="side-mtg"><b>1:1 with Sam</b><span>Jul 7 · 9:30 AM</span></div>
           <div class="side-mtg"><b>Customer call — Acme</b><span>Jul 5 · 4:00 PM</span></div>
         </aside>
         <div class="detail">
-          <h3>Roadmap sync</h3>
-          <div class="metaline"><span>Thursday, July 9, 2026 · 2:00 PM</span><span class="dot">·</span><span>zoom.us</span></div>
-          <div class="seg"><span>Notes</span><span class="on">Transcript</span><span>Ask Claude</span></div>
-          <div class="live-banner"><span class="rec" style="width:8px;height:8px"></span><span>Live — transcribing as people speak.</span></div>
-          <div class="stagger">
-            <div class="turn"><span class="who you">You <span class="ts mono">00:04</span></span><div class="txt">Let's lock the launch date before we scope anything else.</div></div>
-            <div class="turn" style="margin-top:11px"><span class="who them">Sarah Chen <span class="ts mono">00:11</span></span><div class="txt">Agreed. The 14th is realistic if design lands Monday.</div></div>
-            <div class="turn" style="margin-top:11px"><span class="who them">Marcus Lee <span class="ts mono">00:29</span></span><div class="txt">Beta build is already cut — I can have it signed today.</div></div>
-            <div class="turn" style="margin-top:11px"><span class="who you">You <span class="ts mono">00:41</span></span><div class="txt">Great. Then the 14th it is.</div></div>
-            <div class="volatile" style="margin-top:11px">and let's loop in marketing before we<span class="caret"></span></div>
+          <h3>Follow-ups</h3>
+          <div class="metaline"><span>3 open items</span></div>
+          <div style="margin-bottom:14px"><span class="mbtn"><span class="spark">✦</span> Work on my follow-ups with Claude</span></div>
+          <div class="fu-cap">Roadmap sync · 2 days ago</div>
+          <div class="fu">
+            <b>Book the launch review for the 12th</b>
+            <span class="fu-note">30 min, invite Sarah and Marcus</span>
+            <div class="fu-btns"><span class="fu-b">Done</span><span class="fu-b">Dismiss</span><span class="fu-b claude">Hand to Claude</span></div>
+          </div>
+          <div class="fu">
+            <b>File the beta-feedback ticket in Linear</b>
+            <span class="fu-note">Project Launch, assign to Marcus</span>
+            <div class="fu-btns"><span class="fu-b">Done</span><span class="fu-b">Dismiss</span><span class="fu-b claude">Hand to Claude</span></div>
+          </div>
+          <div class="fu-cap">Customer call — Acme · last week</div>
+          <div class="fu">
+            <b>Send Acme the security one-pager</b>
+            <span class="fu-note ph">Instructions for Claude…</span>
+            <div class="fu-btns"><span class="fu-b">Done</span><span class="fu-b">Dismiss</span><span class="fu-b claude">Hand to Claude</span></div>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- the main Parfait card: menu-bar popover, recording -->
-    <div class="float-pop">
-      <div class="pop" role="img" aria-label="Parfait menu-bar popover while recording a meeting">
-        <div class="pop-head"><span class="glass" aria-hidden="true"></span><span>Parfait</span><span class="sp"></span><span class="gear">⚙</span></div>
-        <div class="rec-card">
-          <div class="row" style="margin-bottom:9px"><span class="rec"></span><b style="font-size:.85rem">Roadmap sync</b><span class="mono" style="margin-left:auto;font-size:.82rem;color:var(--accent);font-weight:700">2:14</span></div>
-          <div class="row" style="margin-bottom:11px"><span class="meter"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
-          <div class="btns"><span class="mbtn block"><span class="stop"></span> Stop &amp; summarize</span></div>
-        </div>
-        <div class="reclabel" style="margin-top:12px">Recent</div>
-        <div class="mrow"><div class="mt"><b>Roadmap sync</b><span>Jul 9, 2:00 PM</span></div></div>
-        <div class="mrow"><div class="mt"><b>Design review</b><span>Jul 8, 11:00 AM</span></div></div>
-        <div class="mrow"><div class="mt"><b>1:1 with Sam</b><span>Jul 7, 9:30 AM</span></div></div>
-        <div class="pop-foot"><span class="open">Open Parfait</span><span class="sp"></span><span style="color:var(--m-muted)">⏻</span></div>
+    <!-- Claude working the queue -->
+    <div class="win claude-app" role="img" aria-label="Claude working the follow-up queue and reporting results">
+      <div class="titlebar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="tt"><span class="spark">✦</span>Claude</span></div>
+      <div class="claude-body" style="padding:16px 16px 18px">
+        <div class="qbub">Work on my follow-ups</div>
+        <div class="toolchip"><span class="g"></span>parfait · get_all_followups</div>
+        <p>Three open items, all clear enough to run. Done:</p>
+        <ul>
+          <li>Launch review booked for the 12th — invites out to Sarah and Marcus</li>
+          <li>PAR-214 filed in Linear — “Beta feedback triage”, assigned to Marcus</li>
+          <li>Security one-pager drafted to Acme — in your drafts to review</li>
+        </ul>
+        <div class="toolchip" style="margin-top:10px"><span class="g"></span>parfait · update_followup</div>
+        <p>Each result and link is recorded back in Parfait.</p>
       </div>
     </div>
   </div>
 </section>
-<p class="stage-caption">Parfait sits in your menu bar and starts the moment a call does.</p>
+<p class="stage-caption">Follow-ups from every meeting land in one queue. Edit the instructions, dismiss what you don't want — then hand the list to Claude once. Your review is the approval.</p>
 
   <section id="install">
     <h2 class="eyebrow">Install</h2>
@@ -480,17 +430,13 @@ open /Applications/Parfait.app</code></pre>
   <hr class="divider" aria-hidden="true">
 
   <section>
-    <h2 class="eyebrow">What it is</h2>
-    <p>Parfait is an open alternative to Granola. It records your mic and everyone else's audio, sorts out who said what, and writes the notes into a template you control. No bot joins your call, and there's no server to sign in to. Every meeting is saved as plain files, so Claude can read them directly: a single meeting, your whole history, or the call you're on right now.</p>
-  </section>
-
-  <section>
     <h2 class="eyebrow">How it works</h2>
     <ol class="steps">
-      <li><span class="step-num n1" aria-hidden="true">1</span><p><b>Detects the meeting.</b> It sees a call app pick up your mic and offers to record, or just starts on its own.</p></li>
-      <li><span class="step-num n2" aria-hidden="true">2</span><p><b>Records both sides.</b> Your microphone and everyone else's audio, taken straight from the system. No virtual driver, no bot.</p></li>
-      <li><span class="step-num n3" aria-hidden="true">3</span><p><b>Names the speakers.</b> Every line is timestamped, voices are told apart, and the people on the calendar invite are offered as names.</p></li>
-      <li><span class="step-num n4" aria-hidden="true">4</span><p><b>Writes your notes.</b> Apple Intelligence turns the transcript into an editable template: Meeting Notes, a 1-on-1, an interview, or one of your own.</p></li>
+      <li><span class="step-num n1" aria-hidden="true">1</span><p><b>Sees the meeting coming.</b> A card appears when a calendar meeting is about to start — <b>Join &amp; record</b> — and when any app picks up your mic, Parfait offers to record.</p></li>
+      <li><span class="step-num n2" aria-hidden="true">2</span><p><b>Records both sides.</b> Your microphone and everyone else's audio, taken straight from the system. No virtual driver, no bot in your call.</p></li>
+      <li><span class="step-num n3" aria-hidden="true">3</span><p><b>Names the speakers.</b> Voices are told apart on your Mac, every line is timestamped, and the people on the calendar invite are offered as names.</p></li>
+      <li><span class="step-num n4" aria-hidden="true">4</span><p><b>Writes your notes in seconds.</b> A draft streams in the moment you stop, then quietly improves — shaped by your own editable templates: Meeting Notes, a 1-on-1, an interview.</p></li>
+      <li><span class="step-num n5" aria-hidden="true">5</span><p><b>Pulls out the follow-ups.</b> Every commitment lands in the queue you saw above — edit, dismiss, or hand to Claude.</p></li>
     </ol>
   </section>
 
@@ -503,7 +449,7 @@ open /Applications/Parfait.app</code></pre>
           <h3 style="font-size:1.2rem">Roadmap sync</h3>
           <div class="metaline"><span>Jul 9, 2026 · 2:00 PM</span><span class="dot">·</span><span>32 min</span><span class="dot">·</span><span>zoom.us</span></div>
           <div class="chips"><span class="chip">You</span><span class="chip">Sarah Chen</span><span class="chip">Marcus Lee</span></div>
-          <div class="seg"><span class="on">Notes</span><span>Transcript</span><span>Ask Claude</span></div>
+          <div class="seg"><span class="on">Notes</span><span>Transcript</span><span>Follow ups</span></div>
           <div class="md">
             <div class="h2">TL;DR</div>
             <p>Committed to a <strong>July 14</strong> launch. Design lands Monday, Marcus ships the signed beta today, Sarah owns onboarding copy.</p>
@@ -523,8 +469,13 @@ open /Applications/Parfait.app</code></pre>
   <hr class="divider" aria-hidden="true">
 
   <section>
-    <h2 class="eyebrow">Ask Claude about your meetings</h2>
-    <p>Because your meetings are just files Claude can read, you can ask about them right inside <b>Claude Desktop</b> or <b>Claude Code</b>. Nothing is copied or uploaded. Ask a single meeting what you decided, ask your whole history when you last talked about hiring, or tap <b>Ask Claude live</b> during a call and let Claude catch up on the transcript so far. Set the connector up once, and after that you can skip the app and just ask Claude.</p>
+    <h2 class="eyebrow">Your assistant — before, during, after</h2>
+    <p>Parfait ships as a <b>Claude plugin</b>: one install connects your meeting library to Claude Desktop and Claude Code, and adds three skills. <b>Scoop</b> briefs you before a meeting — what you owe these people, what they owe you. <b>Followups</b> works the queue when the meeting ends. <b>Digest</b> rolls up your week: decisions made, commitments aging, questions still open. And during a call, <b>Ask Claude live</b> answers from the running transcript. Claude reads your meetings on demand, through your own account — no sync step, no second copy of your library on someone's server.</p>
+    <div class="card" style="margin-top:18px">
+<pre><code>claude plugin marketplace add conrad-vanl/parfait
+claude plugin install parfait@parfait</code></pre>
+    </div>
+    <p class="caption">Or click <b>Install plugin</b> inside Parfait and it's done for you.</p>
   </section>
 
   <!-- preview: Ask Claude live — the Parfait live card + the Claude app, two windows -->
@@ -532,7 +483,7 @@ open /Applications/Parfait.app</code></pre>
     <div class="stage ui two-win" style="max-width:880px">
       <!-- Parfait live transcript card -->
       <div class="fcard" role="img" aria-label="Parfait live transcript card during a recording">
-        <div class="row"><span class="rec"></span><b style="font-size:.9rem">Recording</b><span class="mono" style="margin-left:auto;font-size:.72rem;color:var(--m-muted)">08:32</span></div>
+        <div class="row"><span class="rec"></span><b style="font-size:.9rem">Recording</b><span class="mono" style="margin-left:auto;font-size:.72rem;color:var(--m-muted)">8:32</span></div>
         <div class="tbox stagger">
           <div class="turn"><span class="who you">You</span><div class="txt">Let's lock the launch date before we scope anything else.</div></div>
           <div class="turn"><span class="who them">Others</span><div class="txt">Agreed — the 14th is realistic if design lands Monday.</div></div>
@@ -559,7 +510,7 @@ open /Applications/Parfait.app</code></pre>
 
   <section>
     <h2 class="eyebrow">Publish</h2>
-    <p>When a meeting is worth sharing, Parfait turns the notes and transcript into a single page and publishes it as a secret gist on your own GitHub. You get a short <b>notes.parfait.to</b> link to pass to anyone, and deleting the gist takes it back down. Want to keep it private? Preview it in your browser or export the HTML instead, and nothing leaves your Mac.</p>
+    <p>When a meeting is worth sharing, <b>Create shareable link</b> turns it into a single page at a short <b>notes.parfait.to</b> address, backed by a secret gist on your own GitHub — include the transcript or share just the notes. Open follow-ups ride along, and anyone with the link can hand one to Claude straight from the page, no Parfait needed. Deleting the gist takes the page down (caches can keep serving it for up to a day); to keep things fully private, preview in your browser or export the HTML and nothing leaves your Mac.</p>
   </section>
 
   <!-- preview: the published page in a browser -->
@@ -576,12 +527,13 @@ open /Applications/Parfait.app</code></pre>
             <div class="md">
               <div class="h2">TL;DR</div>
               <p>Committed to a <strong>July 14</strong> launch. Design lands Monday, the signed beta ships today, Sarah owns onboarding copy.</p>
+              <div class="h2">Follow-ups</div>
+              <div class="b"><span class="ck">☐</span><span>Book the launch review for the 12th <span class="hand">✦ Hand to Claude</span></span></div>
+              <div class="b"><span class="ck">☐</span><span>Sarah — finalize onboarding copy <span class="hand">✦ Hand to Claude</span></span></div>
               <div class="h2">Decisions</div>
               <div class="b"><span class="bd"></span><span>Launch date is <strong>July 14</strong></span></div>
-              <div class="b"><span class="bd"></span><span>Ship the beta build to testers today</span></div>
             </div>
-            <div class="turn" style="margin-top:16px"><span class="who you">You <span class="ts mono">00:04</span></span><div class="txt">Let's lock the launch date before we scope anything else.</div></div>
-            <div class="turn" style="margin-top:10px"><span class="who them">Sarah Chen <span class="ts mono">00:11</span></span><div class="txt">Agreed. The 14th is realistic if design lands Monday.</div></div>
+            <div class="turn" style="margin-top:16px"><span class="who you">You <span class="ts mono">0:04</span></span><div class="txt">Let's lock the launch date before we scope anything else.</div></div>
           </div>
         </div>
       </div>
@@ -590,13 +542,13 @@ open /Applications/Parfait.app</code></pre>
 
   <section>
     <h2 class="eyebrow">Privacy</h2>
-    <p>The recording, the transcript, the speaker names, and the summary are all made on your Mac, using Apple's built-in speech and intelligence plus one small open model for telling voices apart. The only thing Parfait ever downloads is those models, once. Anything that does leave your Mac, like Claude for chat or GitHub for publishing, goes through apps you're already signed in to, on your own accounts.</p>
-    <p>Parfait has no backend of its own. The one thing the project runs is <b>notes.parfait.to</b>, and it only ever sees a page you chose to publish, which it fetches to show your shared link. Nothing else.</p>
+    <p>Recording, transcription, and telling voices apart always happen on your Mac, using Apple's built-in speech engine plus a small set of open voice models (~22 MB, downloaded once — the only thing Parfait ever downloads). Notes are written on-device by Apple Intelligence, or by Claude through your own account — Claude is preferred by default when Claude Code is installed, and one Settings toggle keeps notes on-device, with Claude stepping in only when a meeting is too long for the local model. Every meeting is plain files in a folder: greppable, backupable, yours.</p>
+    <p>Parfait has no backend and no accounts. The one thing the project runs is <b>notes.parfait.to</b>, and it only ever sees pages you chose to publish.</p>
   </section>
 </main>
 
 <footer>
-  <p><a href="https://github.com/conrad-vanl/parfait">GitHub</a> · <a href="https://github.com/conrad-vanl/parfait/issues">Issues</a> · <a href="/legal">Acceptable Use</a> · MIT License</p>
+  <p><a href="https://github.com/conrad-vanl/parfait">GitHub</a> · <a href="/changelog">Changelog</a> · <a href="https://github.com/conrad-vanl/parfait/issues">Issues</a> · <a href="/legal">Acceptable Use</a> · MIT License</p>
   <p>No analytics, no trackers, no third-party scripts.</p>
 </footer>
 
