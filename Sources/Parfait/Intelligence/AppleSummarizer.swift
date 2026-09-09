@@ -58,11 +58,6 @@ enum AppleSummarizer {
         }
     }
 
-    /// ~55% of the context window for input; English ~3.5 chars/token (TN3193).
-    static func fits(_ text: String) -> Bool {
-        text.count <= inputBudgetChars
-    }
-
     private static let summarizeInstructions = """
     You summarize meeting transcripts. Fill in the headings of the user's template from the \
     transcript, omitting any section with no content. Use speaker names as they appear in the \
@@ -108,31 +103,96 @@ enum AppleSummarizer {
         return try await mapReduce(transcript: transcript, filledTemplate: filledTemplate, model: model)
     }
 
-    /// TN3193 map-reduce: fresh session per chunk, then combine the partials against
-    /// the template. Used when a transcript overflows the on-device context window.
+    private static let noteInstructions = """
+    You take notes on meetings. Output plain markdown bullet points only — no headings, no \
+    title, no preamble or commentary.
+    """
+
+    private static let writeUpInstructions = """
+    You write up meeting notes. The user gives you rough notes from one meeting; write them up \
+    under the headings of the user's template, using each heading exactly once and omitting any \
+    section with no content. Never mention excerpts or parts, never repeat a heading, and never \
+    echo the template's placeholder text. Output ONLY the finished markdown — no preamble or \
+    commentary.
+    """
+
+    /// TN3193 map-reduce for a transcript that overflows the on-device context window:
+    /// take notes on each chunk, condense those notes until they fit in one prompt, then
+    /// write them up against the template.
+    ///
+    /// Both stages are bounded on purpose. An unbounded answer ran past the context window
+    /// mid-generation and threw, which dropped that chunk; an unbounded pile of notes made
+    /// the write-up prompt overflow, at which point the model stopped merging and copied its
+    /// input back — that is how finished notes ended up holding one summary per chunk.
     private static func mapReduce(
         transcript: String, filledTemplate: String, model: SystemLanguageModel
     ) async throws -> String {
         do {
-            let chunks = chunk(transcript)
-            var partials: [String] = []
-            for (i, piece) in chunks.enumerated() {
-                let prompt = """
-                Summarize part \(i + 1) of \(chunks.count) of a meeting transcript in at most \
-                200 words. Keep decisions, action items, owners, and dates.
+            var notes: [String] = []
+            for piece in chunk(transcript, budget: inputBudgetChars) {
+                notes.append(try await respondOnce(
+                    model: model,
+                    instructions: noteInstructions,
+                    prompt: """
+                    Take notes on this excerpt of a meeting transcript, in at most 80 words of \
+                    bullet points. Keep decisions, action items, owners, and dates. Do not write \
+                    a heading.
 
-                \(piece)
-                """
-                partials.append(try await respondOnce(model: model, instructions: summarizeInstructions, prompt: prompt))
+                    \(piece)
+                    """,
+                    maxResponseTokens: chunkResponseTokens))
             }
-            let reducePrompt = "Template:\n\(filledTemplate)\n\n"
-                + "Combine these partial summaries of one meeting into a single summary following the template:\n\n"
-                + partials.joined(separator: "\n\n---\n\n")
-            return try await respondOnce(model: model, instructions: summarizeInstructions, prompt: reducePrompt)
+
+            while joined(notes).count > notesBudgetChars, notes.count > 1 {
+                var condensed: [String] = []
+                for group in chunk(joined(notes), budget: notesBudgetChars) {
+                    condensed.append(try await respondOnce(
+                        model: model,
+                        instructions: noteInstructions,
+                        prompt: """
+                        Condense these notes from one meeting into at most 100 words of bullet \
+                        points, keeping decisions, action items, owners, and dates. Do not write \
+                        a heading.
+
+                        \(group)
+                        """,
+                        maxResponseTokens: chunkResponseTokens))
+                }
+                // A pass that doesn't shrink won't ever converge — write up what we have.
+                guard joined(condensed).count < joined(notes).count else { break }
+                notes = condensed
+            }
+
+            let prompt = "Template:\n\(filledTemplate)\n\nNotes:\n\n\(joined(notes))"
+            let writeUp = try await respondOnce(
+                model: model, instructions: writeUpInstructions, prompt: prompt)
+            guard readsAsSeveralSummaries(writeUp) else { return writeUp }
+            // The model does this sporadically rather than consistently, so a second run of
+            // the same prompt usually lands clean.
+            let retry = try await respondOnce(
+                model: model, instructions: writeUpInstructions, prompt: prompt)
+            guard readsAsSeveralSummaries(retry) else { return retry }
+            throw AppleSummarizerError.generationFailed(
+                "The on-device model couldn't write these notes up as one summary.")
         } catch {
             throw wrap(error)
         }
     }
+
+    /// True when a write-up reads as several summaries stacked together instead of one:
+    /// a heading used twice, a leftover "part 3 of 7" marker, or the horizontal rules that
+    /// separate one set of notes from the next. Cheaper to catch here and fall over to
+    /// Claude than to save it as the meeting's notes.
+    static func readsAsSeveralSummaries(_ markdown: String) -> Bool {
+        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        let headings = lines.filter { $0.hasPrefix("#") }
+        if headings.count != Set(headings).count { return true }
+        if lines.contains("---") { return true }
+        return markdown.range(of: #"(?i)\bpart \d+ of \d+"#, options: .regularExpression) != nil
+    }
+
+    private static func joined(_ notes: [String]) -> String { notes.joined(separator: "\n") }
 
     static func generateTitle(fromSummary summary: String) async throws -> String {
         try ensureAvailable()
@@ -235,10 +295,27 @@ enum AppleSummarizer {
         SystemLanguageModel(guardrails: .permissiveContentTransformations)
     }
 
+    /// ~40% of the context window for one chunk of transcript, at English's ~3.5 chars/token
+    /// (TN3193). contextSize is @backDeployed to 26.0 (fallback 4096) — don't hardcode.
+    /// The obvious 55% overflows: transcripts tokenize denser than prose (measured 3.0–3.8
+    /// chars/token across real meetings, worse around speaker labels and timestamps), and the
+    /// chunk shares the window with the response.
     private static var inputBudgetChars: Int {
-        // contextSize is @backDeployed to 26.0 (fallback 4096) — don't hardcode.
-        Int(Double(SystemLanguageModel.default.contextSize) * 0.55 * 3.5)
+        Int(Double(SystemLanguageModel.default.contextSize) * 0.40 * 3.5)
     }
+
+    /// The write-up prompt holds the notes, the template, AND a full set of finished notes
+    /// as the answer, so the notes get a much smaller slice of the window than a transcript
+    /// chunk does. Measured against real meetings: at ~8000 characters of notes the model
+    /// stopped merging and echoed them back; at ~3000 it wrote one clean set of notes.
+    private static var notesBudgetChars: Int {
+        Int(Double(SystemLanguageModel.default.contextSize) * 0.18 * 3.5)
+    }
+
+    /// Response cap for the chunk-level passes. The word limits in those prompts are
+    /// advisory and the model overruns them; left uncapped it generates until it hits the
+    /// context window and throws, losing the chunk.
+    private static let chunkResponseTokens = 300
 
     private static func ensureAvailable() throws {
         if let reason = unavailableReason {
@@ -252,18 +329,22 @@ enum AppleSummarizer {
         model: SystemLanguageModel,
         instructions: String,
         prompt: String,
+        maxResponseTokens: Int? = nil,
         retryOnRateLimit: Bool = true
     ) async throws -> String {
         let session = LanguageModelSession(model: model, instructions: instructions)
         do {
-            let response = try await session.respond(to: prompt, options: GenerationOptions(temperature: 0.3))
+            let response = try await session.respond(
+                to: prompt,
+                options: GenerationOptions(temperature: 0.3, maximumResponseTokens: maxResponseTokens))
             return response.content
         } catch let error as LanguageModelSession.GenerationError {
             // A menu-bar (LSUIElement) app can count as background, where the system rate limit applies.
             if case .rateLimited = error, retryOnRateLimit {
                 try await Task.sleep(for: .seconds(3))
                 return try await respondOnce(
-                    model: model, instructions: instructions, prompt: prompt, retryOnRateLimit: false
+                    model: model, instructions: instructions, prompt: prompt,
+                    maxResponseTokens: maxResponseTokens, retryOnRateLimit: false
                 )
             }
             throw error
@@ -300,12 +381,13 @@ enum AppleSummarizer {
         }
     }
 
-    private static func chunk(_ text: String) -> [String] {
-        let maxChars = inputBudgetChars
+    /// Splits on line boundaries so speaker turns stay whole. A single line longer than
+    /// `budget` becomes an oversized chunk of its own rather than being cut mid-sentence.
+    static func chunk(_ text: String, budget: Int) -> [String] {
         var chunks: [String] = []
         var current = ""
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if current.count + line.count + 1 > maxChars, !current.isEmpty {
+            if current.count + line.count + 1 > budget, !current.isEmpty {
                 chunks.append(current)
                 current = ""
             }
